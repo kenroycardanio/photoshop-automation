@@ -1,0 +1,17 @@
+Field,Layer name (inside id# group),CSV column,Excel column,Notes
+LRN No.,lrn,Learner's Reference Number (LRN),G,Text layer
+Gender,gender,Gender,N,Text layer
+Date of birth,dob,Birthday,M,Text layer
+Validity years,validity,ID VALIDITY,V,Text layer
+Student name,studentname,Full Name,H,Point text - ≤15 chars 100% - 25 chars 70%
+Parent / guardian,guardian,IN CASE OF EMERGENCY PARENTS/ GUARDIAN,O,Point text - ≤15 chars 100% - 16 chars 90%
+Contact number,contact,Contact Number,P,Leading 0 added if missing
+Complete address,address,Address,Q,Point text - ≤37 chars 100% - 39 chars 95%
+Student photo,smart,picture path,AB,Fits inside PSD smart layer box - position and size from template
+QR code,qr,qr path,AC,Fits inside PSD qr layer box - position and size from template
+
+Point text scale rule,Counts characters incl. spaces - linear between anchor points - keeps shrinking past anchor - min 40%
+Image layers,smart and qr inside each id# group - script scales image to cover the layer bounds (2x2 photo slot etc.)
+Paths,Use forward slashes C:/Photos/file.jpg - not Google Drive URLs
+
+Example inside id1,id1/lrn id1/gender id1/dob id1/validity id1/studentname id1/guardian id1/contact id1/address id1/smart id1/qr

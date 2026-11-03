@@ -1,0 +1,14 @@
+Batch example,Start row,End row,Groups used,What happens
+First sheet (5-up),1,5,id1-id5,CSV rows 1-5 fill id1 through id5 groups
+Second sheet (5-up),6,10,id1-id5,CSV rows 6-10 fill id1 through id5 again
+First sheet (4-up),1,4,id1-id4,CSV rows 1-4 only - id5 not needed
+
+Inside each id# group use these layer names,lrn gender dob validity studentname guardian contact address smart
+
+Group names for 5-up,id1 id2 id3 id4 id5
+Group names for 4-up,id1 id2 id3 id4
+
+Rule,Detail
+Same layer names in every group,lrn gender dob etc. - not lrn1 lrn2
+Missing group or layer,Ignored
+Contact format,948548171 becomes 0948548171
