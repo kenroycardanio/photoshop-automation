@@ -1,21 +1,25 @@
 Layer name (inside id#),Type,CSV column,Notes
-cardnumber,cardnumber,Card Number,4-4-4-4 spaces
+cardnumber,cardnumber,Card Number,4-4-4-4 spaces — old NFT layout; unused columns are OK
 qrcardnumber,digits,QR Card Number,keeps leading zeros
-name,text-fit-track,NAME,
-membersince,text,MEMBER SINCE,
-validuntil,text,Valid Until,
-smartA1 … smartA5,image,PictureA,number = id slot (id1→smartA1)
-smartB1 … smartB5,image,PictureB,
-smartC1 … smartC5,image,PictureC,
+name,text-fit-track,NAME,old NFT layout
+membersince,text,MEMBER SINCE,old NFT layout
+validuntil,text,Valid Until,old NFT layout
+smartA1 … smartA5,image,PictureA,photo — number = id slot (id1→smartA1)
+smartB1 … smartB5,image,PictureB,QR PNG — warn if filename does not match DataA
+smartC1 … smartC5,image,PictureC,disabled unless enabled in script
 smartD1 … smartD5,image,PictureD,
 smartE1 … smartE5,image,PictureE,
-dataA1 … dataA5,image,DataA,number = id slot
-dataB1 … dataB5,image,DataB,
-dataC1 … dataC5,image,DataC,
-dataD1 … dataD5,image,DataD,
-dataE1 … dataE5,image,DataE,
-dataF1 … dataF5,image,DataF,
-dataG1 … dataG5,image,DataG,
-dataH1 … dataH5,image,DataH,
-dataI1 … dataI5,image,DataI,
-dataJ1 … dataJ5,image,DataJ,
+dataA1 … dataA5,text,DataA,member code — skip quietly if layer missing
+dataB1 … dataB5,text,DataB,full name
+dataC1 … dataC5,text,DataC,blood type or other text
+dataD1 … dataD5,text,DataD,often repeats DataA
+dataE1 … dataE5,text,DataE,skip quietly if layer missing
+dataF1 … dataF5,text,DataF,
+dataG1 … dataG5,text,DataG,
+dataH1 … dataH5,text,DataH,
+dataI1 … dataI5,text,DataI,
+dataJ1 … dataJ5,text,DataJ,
+nickname1 … nickname5,text,nickname,skip quietly if layer missing
+firstName1 … firstName5,text,firstName,
+lastName1 … lastName5,text,lastName,
+verifyUrl1 … verifyUrl5,text,verifyUrl,

@@ -1,0 +1,4 @@
+DataA,DataB,DataD,nickname,firstName,lastName,DataC,PictureA,PictureB,verifyUrl
+CEB-XX0001,Juan Dela Cruz,CEB-XX0001,Juan,Juan,Dela Cruz,O+,C:\Users\Admin\Desktop\NFT photos\CEB-XX0001.jpg,C:\Users\Admin\Desktop\NFT QR\CEB-XX0001.png,https://example.com/verify/CEB-XX0001
+CEB-XX0002,Maria Santos,CEB-XX0002,Maria,Maria,Santos,,C:\Users\Admin\Desktop\NFT photos\CEB-XX0002.jpg,C:\Users\Admin\Desktop\NFT QR\CEB-XX0002.png,https://example.com/verify/CEB-XX0002
+CEB-XX0003,Pedro Reyes,CEB-XX0003,Ped,Pedro,Reyes,A+,C:\Users\Admin\Desktop\NFT photos\CEB-XX0003.jpg,C:\Users\Admin\Desktop\NFT QR\WRONG-CODE.png,https://example.com/verify/CEB-XX0003
