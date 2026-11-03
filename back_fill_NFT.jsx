@@ -2,8 +2,10 @@
   Photoshop CS6 — NFT back fill (client)
   Groups id1…id5. Sheet: NFT CARDS
   Col1 # = row number (ignored). Col2 = Card Number.
-  PictureA→smartA1…  DataA→dataA1…
+  PictureA→smartA1…  PictureB→smartB1…
+  DataA→dataA1… (text). Member CSV: nickname/firstName/lastName/verifyUrl.
   Card Number kept as 8155 5265 3090 3026 (4-4-4-4).
+  Headers match case-insensitively, ignoring spaces and underscores.
 */
 
 #target photoshop
@@ -48,7 +50,7 @@ app.bringToFront();
     },
     { prefix: "membersince", column: "MEMBER SINCE", type: "text" },
     { prefix: "validuntil", column: "Valid Until", type: "text" },
-    // Only PictureA for now — others stay disabled (no layer hunt / no skip spam)
+    // PictureC–E stay disabled (no layer hunt / no skip spam)
     {
       prefix: "smartA",
       column: "PictureA",
@@ -67,7 +69,7 @@ app.bringToFront();
       prefix: "smartB",
       column: "PictureB",
       type: "image",
-      enabled: false,
+      optional: true,
       columnAliases: ["Picture B", "smart2path"],
       layerAliases: ["smartB"]
     },
@@ -98,73 +100,110 @@ app.bringToFront();
     {
       prefix: "dataA",
       column: "DataA",
-      type: "image",
-      enabled: false,
-      columnAliases: ["Data A", "Data1"],
+      type: "text",
+      optional: true,
+      columnAliases: ["Data A"],
       layerAliases: ["dataA"]
     },
     {
       prefix: "dataB",
       column: "DataB",
-      type: "image",
-      enabled: false,
+      type: "text",
+      optional: true,
+      columnAliases: ["Data B"],
       layerAliases: ["dataB"]
     },
     {
       prefix: "dataC",
       column: "DataC",
-      type: "image",
-      enabled: false,
+      type: "text",
+      optional: true,
+      columnAliases: ["Data C"],
       layerAliases: ["dataC"]
     },
     {
       prefix: "dataD",
       column: "DataD",
-      type: "image",
-      enabled: false,
+      type: "text",
+      optional: true,
+      columnAliases: ["Data D"],
       layerAliases: ["dataD"]
     },
     {
       prefix: "dataE",
       column: "DataE",
-      type: "image",
-      enabled: false,
+      type: "text",
+      optional: true,
+      columnAliases: ["Data E"],
       layerAliases: ["dataE"]
     },
     {
       prefix: "dataF",
       column: "DataF",
-      type: "image",
-      enabled: false,
+      type: "text",
+      optional: true,
+      columnAliases: ["Data F"],
       layerAliases: ["dataF"]
     },
     {
       prefix: "dataG",
       column: "DataG",
-      type: "image",
-      enabled: false,
+      type: "text",
+      optional: true,
+      columnAliases: ["Data G"],
       layerAliases: ["dataG"]
     },
     {
       prefix: "dataH",
       column: "DataH",
-      type: "image",
-      enabled: false,
+      type: "text",
+      optional: true,
+      columnAliases: ["Data H"],
       layerAliases: ["dataH"]
     },
     {
       prefix: "dataI",
       column: "DataI",
-      type: "image",
-      enabled: false,
+      type: "text",
+      optional: true,
+      columnAliases: ["Data I"],
       layerAliases: ["dataI"]
     },
     {
       prefix: "dataJ",
       column: "DataJ",
-      type: "image",
-      enabled: false,
+      type: "text",
+      optional: true,
+      columnAliases: ["Data J"],
       layerAliases: ["dataJ"]
+    },
+    {
+      prefix: "nickname",
+      column: "nickname",
+      type: "text",
+      optional: true,
+      columnAliases: ["Nick Name", "Nick"]
+    },
+    {
+      prefix: "firstName",
+      column: "firstName",
+      type: "text",
+      optional: true,
+      columnAliases: ["First Name", "Firstname"]
+    },
+    {
+      prefix: "lastName",
+      column: "lastName",
+      type: "text",
+      optional: true,
+      columnAliases: ["Last Name", "Lastname"]
+    },
+    {
+      prefix: "verifyUrl",
+      column: "verifyUrl",
+      type: "text",
+      optional: true,
+      columnAliases: ["Verify URL", "verify_url", "VerifyUrl"]
     }
   ];
 
@@ -201,7 +240,8 @@ app.bringToFront();
       "statictext",
       undefined,
       "Col1 # = sheet row (ignored). Col2 = Card Number.\n" +
-        "PictureA → smartA1… (empty cells skipped)\n" +
+        "PictureA → smartA1… PictureB → smartB1… (empty cells skipped)\n" +
+        "DataA / firstName / lastName / … fill text layers if present.\n" +
         "Images: exact path from CSV. Card#: 8155 5265 3090 3026",
       { multiline: true }
     ).preferredSize.width = 420;
@@ -630,32 +670,89 @@ app.bringToFront();
     return out;
   }
 
-  // Only real cards (have NAME and/or Card Number)
-  function filterStudentRows(headerRow, dataRows, headerInfo) {
-    var nameIdx = resolveColumnIndex(headerInfo, { column: "NAME", columnAliases: ["Name", "MEMBER NAME"] }, dataRows);
-    var cardIdx = resolveColumnIndex(headerInfo, { column: "Card Number", columnAliases: ["CardNumber", "CARD NUMBER"] }, dataRows);
-    var picIdx = resolveColumnIndex(headerInfo, { column: "PictureA", columnAliases: ["pictureA"] }, dataRows);
-    if (picIdx === undefined) {
-      picIdx = resolveColumnIndex(headerInfo, { column: "DataA", columnAliases: ["dataA"] }, dataRows);
-    }
+  function csvCell(cells, headerInfo, column, dataRows, aliases) {
+    var idx = resolveColumnIndex(
+      headerInfo,
+      { column: column, columnAliases: aliases || [] },
+      dataRows
+    );
+    if (idx === undefined) return "";
+    return trim(cells && cells[idx] != null ? cells[idx] : "");
+  }
 
+  // firstName + lastName, else NAME, else DataB, else DataA
+  function rowDisplayName(cells, headerInfo, dataRows) {
+    var fn = csvCell(cells, headerInfo, "firstName", dataRows, ["First Name"]);
+    var ln = csvCell(cells, headerInfo, "lastName", dataRows, ["Last Name"]);
+    var combined = trim(fn + (fn && ln ? " " : "") + ln);
+    if (combined) return combined;
+    var name = csvCell(cells, headerInfo, "NAME", dataRows, ["Name", "MEMBER NAME"]);
+    if (name) return name;
+    var dataB = csvCell(cells, headerInfo, "DataB", dataRows);
+    if (dataB) return dataB;
+    var dataA = csvCell(cells, headerInfo, "DataA", dataRows);
+    if (dataA) return dataA;
+    return "(no name)";
+  }
+
+  // Valid if it has a name (or firstName/lastName), Card Number, or DataA
+  function isValidCardRow(cells, headerInfo, dataRows) {
+    if (!cells) return false;
+    var name = csvCell(cells, headerInfo, "NAME", dataRows, ["Name", "MEMBER NAME"]);
+    var fn = csvCell(cells, headerInfo, "firstName", dataRows, ["First Name"]);
+    var ln = csvCell(cells, headerInfo, "lastName", dataRows, ["Last Name"]);
+    var card = csvCell(cells, headerInfo, "Card Number", dataRows, [
+      "CardNumber",
+      "CARD NUMBER"
+    ]);
+    var dataA = csvCell(cells, headerInfo, "DataA", dataRows);
+    return !!(name || fn || ln || card || dataA);
+  }
+
+  function fileStem(path) {
+    var s = trim(path);
+    if (!s) return "";
+    s = s.replace(/\\/g, "/");
+    var slash = s.lastIndexOf("/");
+    if (slash >= 0) s = s.substring(slash + 1);
+    var dot = s.lastIndexOf(".");
+    if (dot > 0) s = s.substring(0, dot);
+    return s;
+  }
+
+  // Warn (do not fail) when PictureB filename does not match this row's DataA
+  function warnIfPictureBMismatch(cells, headerInfo, dataRows, csvRowNum, log) {
+    if (!log.warnings) log.warnings = [];
+    var dataA = csvCell(cells, headerInfo, "DataA", dataRows);
+    var picB = csvCell(cells, headerInfo, "PictureB", dataRows, ["Picture B"]);
+    if (!dataA || !picB) return;
+    var stem = fileStem(picB);
+    if (!stem) return;
+    var codeKey = normalizeHeader(dataA);
+    var stemKey = normalizeHeader(stem);
+    if (!codeKey || stemKey === codeKey) return;
+    if (stemKey.indexOf(codeKey) >= 0) return;
+    log.warnings.push(
+      "CSV row " +
+        csvRowNum +
+        " PictureB file \"" +
+        stem +
+        "\" does not match DataA \"" +
+        dataA +
+        "\""
+    );
+  }
+
+  function filterStudentRows(headerRow, dataRows, headerInfo) {
     var kept = [];
     var dropped = 0;
 
     for (var i = 0; i < dataRows.length; i++) {
-      var cells = dataRows[i];
-      if (!cells || cells.length < 3) {
+      if (isValidCardRow(dataRows[i], headerInfo, dataRows)) {
+        kept.push(dataRows[i]);
+      } else {
         dropped++;
-        continue;
       }
-      var name = nameIdx !== undefined ? trim(cells[nameIdx]) : "";
-      var card = cardIdx !== undefined ? trim(cells[cardIdx]) : "";
-      var qrImg = picIdx !== undefined ? trim(cells[picIdx]) : "";
-      if (!name && !card && !looksLikeImagePath(qrImg)) {
-        dropped++;
-        continue;
-      }
-      kept.push(cells);
     }
     return { rows: kept, dropped: dropped, minCols: headerRow.length };
   }
@@ -857,6 +954,7 @@ app.bringToFront();
     return best;
   }
 
+  // Case-insensitive; spaces, underscores, and hyphens ignored
   function normalizeHeader(s) {
     return trim(String(s == null ? "" : s))
       .toLowerCase()
@@ -1508,33 +1606,21 @@ app.bringToFront();
   }
 
   function fillSlot(doc, slot, csvRowNum, cells, headerInfo, dataRows, log) {
-    var nameIdx = resolveColumnIndex(
+    var student = rowDisplayName(cells, headerInfo, dataRows);
+    var picCol = resolveColumnIndex(
       headerInfo,
-      { column: "NAME", columnAliases: ["Name"] },
+      { column: "PictureA", type: "image", columnAliases: ["pictureA"] },
       dataRows
     );
-    var student =
-      (nameIdx !== undefined ? cellValue(cells, nameIdx, "text") : "") ||
-      "(no name)";
-    var picCol = undefined;
+
+    warnIfPictureBMismatch(cells, headerInfo, dataRows, csvRowNum, log);
 
     for (var f = 0; f < FIELDS.length; f++) {
       var field = FIELDS[f];
       if (field.enabled === false) continue;
 
-      var hit = findLayerForSlot(doc, slot, field.prefix, field.layerAliases);
-      if (!hit.layer) {
-        log.skipped.push(
-          "CSV row " + csvRowNum + " " + hit.label + " (layer not found)"
-        );
-        continue;
-      }
-
       var colIdx = resolveColumnIndex(headerInfo, field, dataRows);
       if (colIdx === undefined) {
-        log.skipped.push(
-          "CSV row " + csvRowNum + " " + hit.label + " (no CSV column)"
-        );
         continue;
       }
 
@@ -1543,11 +1629,20 @@ app.bringToFront();
           ? recoverImagePath(cells, colIdx, field.prefix, picCol)
           : cellValue(cells, colIdx, field.type);
 
+      if (value == null || value === "") {
+        continue;
+      }
+
+      var hit = findLayerForSlot(doc, slot, field.prefix, field.layerAliases);
+      if (!hit.layer) {
+        if (field.optional === true) continue;
+        log.skipped.push(
+          "CSV row " + csvRowNum + " " + hit.label + " (layer not found)"
+        );
+        continue;
+      }
+
       if (field.type === "image") {
-        if (!value) {
-          // No path in this cell — skip quietly (only PictureA used for now)
-          continue;
-        }
         if (!looksLikeImagePath(value)) {
           log.skipped.push(
             "CSV row " +
@@ -1573,7 +1668,7 @@ app.bringToFront();
           continue;
         }
         try {
-          // Restore as smartA1 / dataA1 (prefix + slot)
+          // Restore as smartA1 / smartB1 (prefix + slot)
           fitImageIntoLayer(
             doc,
             hit.layer,
@@ -1597,13 +1692,6 @@ app.bringToFront();
         continue;
       }
 
-      if (value == null || value === "") {
-        log.skipped.push(
-          "CSV row " + csvRowNum + " " + hit.label + " (empty cell)"
-        );
-        continue;
-      }
-
       try {
         if (field.type === "text-fit-track") {
           var m = setPointTextWithTrackingFit(hit.layer, value, field.fitRules);
@@ -1622,6 +1710,7 @@ app.bringToFront();
           log.applied.push(hit.label);
         }
       } catch (e) {
+        if (field.optional === true) continue;
         log.skipped.push(
           "CSV row " + csvRowNum + " " + hit.label + " (not text?)"
         );
@@ -1640,7 +1729,7 @@ app.bringToFront();
   app.displayDialogs = DialogModes.NO;
 
   var doc = app.activeDocument;
-  var batchLog = { applied: [], skipped: [], lines: [] };
+  var batchLog = { applied: [], skipped: [], warnings: [], lines: [] };
 
   try {
     var loaded = loadTable(settings.dataPath);
@@ -1674,31 +1763,35 @@ app.bringToFront();
         "Dropped " + filtered.dropped + " incomplete/junk row(s); using real cards only"
       );
     }
+    var unusedHeaders = [];
     for (var fi = 0; fi < FIELDS.length; fi++) {
       var fld = FIELDS[fi];
       if (fld.enabled === false) continue;
       var idx = resolveColumnIndex(headerInfo, fld, dataOnly);
       if (idx === undefined) {
-        mapLines.push(fld.prefix + " ← MISSING header \"" + fld.column + "\"");
-      } else {
-        var hdrName = headerInfo.originals[idx] || fld.column;
-        var sample = "";
-        if (fld.type === "image" && dataOnly.length) {
-          var sv = dataOnly[0][idx] != null ? trim(dataOnly[0][idx]) : "";
-          sample = sv
-            ? " sample: " + sv.replace(/^.*[\\\/]/, "").substring(0, 40)
-            : " sample: (empty row1)";
-        }
-        mapLines.push(
-          fld.prefix +
-            " ← \"" +
-            hdrName +
-            "\" (" +
-            excelColLetter(idx) +
-            ")" +
-            sample
-        );
+        if (fld.optional !== true) unusedHeaders.push(fld.prefix);
+        continue;
       }
+      var hdrName = headerInfo.originals[idx] || fld.column;
+      var sample = "";
+      if (fld.type === "image" && dataOnly.length) {
+        var sv = dataOnly[0][idx] != null ? trim(dataOnly[0][idx]) : "";
+        sample = sv
+          ? " sample: " + sv.replace(/^.*[\\\/]/, "").substring(0, 40)
+          : " sample: (empty row1)";
+      }
+      mapLines.push(
+        fld.prefix +
+          " ← \"" +
+          hdrName +
+          "\" (" +
+          excelColLetter(idx) +
+          ")" +
+          sample
+      );
+    }
+    if (unusedHeaders.length) {
+      mapLines.push("Not in this CSV (OK): " + unusedHeaders.join(", "));
     }
     if (headerInfo.__dupes && headerInfo.__dupes.length) {
       mapLines.push("Duplicate headers (picked best by data): " + headerInfo.__dupes.join("; "));
@@ -1726,18 +1819,9 @@ app.bringToFront();
       );
     }
 
-    var nameIdxPreview = resolveColumnIndex(
-      headerInfo,
-      { column: "NAME", columnAliases: ["Name"] },
-      dataOnly
-    );
     var preview = [];
     for (var p = settings.startRow; p <= settings.endRow; p++) {
-      var nm =
-        (nameIdxPreview !== undefined
-          ? cellValue(rows[p], nameIdxPreview, "text")
-          : "") || "(no name)";
-      preview.push("  " + p + " = " + nm);
+      preview.push("  " + p + " = " + rowDisplayName(rows[p], headerInfo, dataOnly));
     }
 
     // Show PictureA path cells for selected rows + file-exists check
@@ -1827,6 +1911,11 @@ app.bringToFront();
     summary.push("=== RESULT ===");
     summary.push("Applied: " + batchLog.applied.length);
     summary.push("Skipped: " + batchLog.skipped.length);
+    if (batchLog.warnings && batchLog.warnings.length) {
+      summary.push("");
+      summary.push("--- WARNINGS ---");
+      summary = summary.concat(batchLog.warnings.slice(0, 30));
+    }
     if (batchLog.skipped.length) {
       summary.push("");
       summary.push("--- SKIPPED (read this) ---");

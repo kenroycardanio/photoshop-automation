@@ -8,3 +8,11 @@ __pycache__/
 *.pyc
 .env
 credentials.json
+
+# Real member exports (PII) — keep dummy samples only
+nft_members.csv
+nft_members*.csv
+*_members.csv
+!sample_NFT_members.csv
+members.csv
+
