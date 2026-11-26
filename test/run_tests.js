@@ -12,7 +12,7 @@ var path = require("path");
 
 var ROOT = path.resolve(__dirname, "..");
 var NFT_JSX = path.join(ROOT, "back_fill_NFT.jsx");
-var DATA20_JSX = path.join(ROOT, "back_fill_NFT_Data20.jsx");
+var DATA20_JSX = path.join(ROOT, "Data20.jsx");
 var BATCH_JSX = path.join(ROOT, "batch_fill.jsx");
 var SAMPLE_MEMBERS = path.join(ROOT, "sample_NFT_members.csv");
 var SAMPLE_DATA20 = path.join(ROOT, "sample_NFT_data20.csv");
@@ -518,6 +518,12 @@ function testData20Fields(h) {
     "Data20 lookup regex is widened to A-T"
   );
   assert(src20.indexOf("Data20: DataA-DataT") >= 0, "Data20 header/help says Data20: DataA-DataT");
+  assert(src20.indexOf("Data20.jsx") >= 0, "Data20 header names the file Data20.jsx");
+  assert(fs.existsSync(DATA20_JSX), "script file is Data20.jsx");
+  assert(
+    !fs.existsSync(path.join(ROOT, "back_fill_NFT_Data20.jsx")),
+    "old back_fill_NFT_Data20.jsx name is not kept"
+  );
   assert(src20.indexOf('columnAliases: ["Data K"]') >= 0, "DataK has column alias Data K");
   assert(src20.indexOf('layerAliases: ["dataK"]') >= 0, "DataK has layer alias dataK");
   assert(src20.indexOf('columnAliases: ["Data T"]') >= 0, "DataT has column alias Data T");
@@ -611,9 +617,9 @@ function main() {
   testPathFallbacks(batch);
   testSkipContinueLogic();
   testEncodingFallback(nft, "back_fill_NFT.jsx");
-  testEncodingFallback(data20, "back_fill_NFT_Data20.jsx");
+  testEncodingFallback(data20, "Data20.jsx");
   testRowRangeParsing(nft, "back_fill_NFT.jsx");
-  testRowRangeParsing(data20, "back_fill_NFT_Data20.jsx");
+  testRowRangeParsing(data20, "Data20.jsx");
   testData20Fields(data20);
 
   console.log("Passed: " + passed + "  Failed: " + failed);

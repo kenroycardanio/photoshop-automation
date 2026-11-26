@@ -1,5 +1,5 @@
 /*
-  Photoshop CS6 — NFT back fill (client) — Data20: DataA-DataT
+  Photoshop CS6 — Data20.jsx — NFT back fill (client) — Data20: DataA-DataT
   Groups id1…id5. Sheet: NFT CARDS
   Col1 # = row number (ignored). Col2 = Card Number.
   PictureA→smartA1…  PictureB→smartB1…

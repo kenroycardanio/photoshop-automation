@@ -135,7 +135,7 @@ See `Photoshop_Layer_Codes_NFT.csv` for the full NFT layer table.
 
 ---
 
-## Data20 — `back_fill_NFT_Data20.jsx`
+## Data20 — `Data20.jsx`
 
 Same script as `back_fill_NFT.jsx` (UTF-8 / Windows-1252 auto-detect, skip-and-report, row range, one History step) with the text-field cap raised to **Data20: DataA-DataT**.
 
@@ -143,6 +143,6 @@ Same script as `back_fill_NFT.jsx` (UTF-8 / Windows-1252 auto-detect, skip-and-r
 |-------------------------|------------|
 | `dataK1` … `dataT1` | **DataK** … **DataT** (also `Data K` … `Data T`) |
 
-Use this when the PSD has `dataK`…`dataT` layers. Keep using `back_fill_NFT.jsx` for the 10-data template (DataA–DataJ only). Dummy sample: `sample_NFT_data20.csv`.
+Use this when the PSD has `dataK`…`dataT` layers: **File → Scripts → Browse…** → `Data20.jsx`. Keep using `back_fill_NFT.jsx` for the 10-data template (DataA–DataJ only). Dummy sample: `sample_NFT_data20.csv`.
 
 CSV encoding, Data20 field list, and row-range parsing checks (dummy data, no Photoshop): `node test/run_tests.js`
