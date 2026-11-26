@@ -2,6 +2,10 @@
 
 Fill **4 or 5 student IDs on one PSD** from a **CSV** (default). Excel (`.xlsx`) is optional.
 
+**CSV encoding:** save / export as **UTF-8** (Google Sheets → Download → CSV, or Excel → CSV UTF-8). Names and paths with **ñ** or other accents will otherwise become mojibake (`SeÃ±ara`) and fail `File(path).exists`.
+
+**Missing files:** if a picture/QR path is not found, that field is **skipped** (the rest of the sheet still fills). The end-of-run summary lists every skipped item (row, column, value). A missing-file pre-check is a warning, not a stop.
+
 **LRN tip:** in Google Sheets / Excel set the LRN column to **Plain text** before download/export, so digits don’t become `1.27E+11`.
 
 If you pick `.xlsx` and Excel isn’t installed, Python + `excel_to_rows.py` is used as a fallback.
@@ -77,6 +81,8 @@ See `Photoshop_Layer_Codes.csv` for the full reference table.
 
 Same workflow (CSV + start/end row → `id1`…`id5`). Sheet: **NFT CARDS**.
 
+Save the CSV as **UTF-8** so names like `Juan Peña` and paths like `Minna Señara.jpg` fill correctly. Missing **PictureA** / **PictureB** files (and other per-row/per-field errors) are **skipped and listed** in the final summary — they do not abort the run. The PictureA pre-check stays visible as a warning.
+
 Headers are matched **by name** (case-insensitive; spaces and underscores ignored), not by column position. Missing columns and missing optional text layers are skipped quietly — they are not counted as errors.
 
 A row is a **valid card** if it has any of: **NAME** (or **firstName** / **lastName**), **Card Number**, or **DataA**. The row check label prefers `firstName lastName`, then **NAME**, then **DataB**, then **DataA**.
@@ -99,7 +105,7 @@ A row is a **valid card** if it has any of: **NAME** (or **firstName** / **lastN
 
 ### Member CSV — `sample_NFT_members.csv`
 
-Dummy sample only (fake names/codes/paths). Real member files must **not** be committed.
+Dummy sample only (fake names/codes/paths, including a UTF-8 row `Juan Peña` / `Minna Señara.jpg`). Real member files must **not** be committed.
 
 | Layer (in `id1`) | CSV column | Notes |
 |------------------|------------|--------|
@@ -117,3 +123,5 @@ Dummy sample only (fake names/codes/paths). Real member files must **not** be co
 Optional text layers (`dataA1`, `nickname1`, `firstName1`, …) are filled when they exist in the PSD and ignored when they do not.
 
 See `Photoshop_Layer_Codes_NFT.csv` for the full NFT layer table.
+
+CSV UTF-8 parsing and skip-on-missing checks (dummy data, no Photoshop): `node test/run_tests.js`
