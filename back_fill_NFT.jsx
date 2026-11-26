@@ -1,11 +1,13 @@
 /*
-  Photoshop CS6 — NFT back fill (client)
+  Photoshop CS6 — NFT back fill (client) — Data10: DataA-DataJ
   Groups id1…id5. Sheet: NFT CARDS
   Col1 # = row number (ignored). Col2 = Card Number.
   PictureA→smartA1…  PictureB→smartB1…
-  DataA→dataA1… (text). Member CSV: nickname/firstName/lastName/verifyUrl.
+  DataA→dataA1… DataJ (text). Member CSV: nickname/firstName/lastName/verifyUrl.
   Card Number kept as 8155 5265 3090 3026 (4-4-4-4).
   Headers match case-insensitively, ignoring spaces and underscores.
+  Row numbers: 1 = first data row after the header (Excel/Sheets row 2); # column ignored.
+  CSV encoding: try UTF-8, then SYSTEM/Windows-1252 if invalid UTF-8.
 */
 
 #target photoshop
@@ -210,6 +212,7 @@ app.bringToFront();
   var MAX_SLOTS = 5;
 
   function showDialog() {
+    var slotCount = countIdGroups(app.activeDocument);
     var dlg = new Window("dialog", "NFT Back Fill (CS6)");
     dlg.orientation = "column";
     dlg.alignChildren = ["fill", "top"];
@@ -229,20 +232,30 @@ app.bringToFront();
     };
 
     var rangeGroup = dlg.add("group");
-    rangeGroup.add("statictext", undefined, "Start row:");
-    var startEt = rangeGroup.add("edittext", undefined, "1");
+    rangeGroup.add("statictext", undefined, "Row range:");
+    var rangeEt = rangeGroup.add("edittext", undefined, "");
+    rangeEt.preferredSize.width = 90;
+    rangeGroup.add("statictext", undefined, "(e.g. 101-104 or 101)");
+
+    var startEndGroup = dlg.add("group");
+    startEndGroup.add("statictext", undefined, "Start row:");
+    var startEt = startEndGroup.add("edittext", undefined, "1");
     startEt.preferredSize.width = 50;
-    rangeGroup.add("statictext", undefined, "End row:");
-    var endEt = rangeGroup.add("edittext", undefined, "5");
+    startEndGroup.add("statictext", undefined, "End row:");
+    var endEt = startEndGroup.add("edittext", undefined, "5");
     endEt.preferredSize.width = 50;
 
     dlg.add(
       "statictext",
       undefined,
-      "Col1 # = sheet row (ignored). Col2 = Card Number.\n" +
-        "PictureA → smartA1… PictureB → smartB1… (empty cells skipped)\n" +
-        "DataA / firstName / lastName / … fill text layers if present.\n" +
-        "CSV must be UTF-8. Missing image files are skipped and listed at the end.",
+      "Row numbers: 1 = first data row after the header (Excel/Sheets row 2).\n" +
+        "The # column is ignored. Row range (101-104 or 101) overrides Start/End if filled.\n" +
+        "Each row fills the next id group (id1, id2, …) in order. This PSD has " +
+        slotCount +
+        " id group(s).\n" +
+        "A range longer than that is rejected. Rows past the CSV or blank rows are skipped.\n" +
+        "Col2 = Card Number. PictureA → smartA1… DataA–DataJ fill text layers if present.\n" +
+        "CSV: UTF-8, or older Windows-1252 auto-detected. Missing images are skipped and listed.",
       { multiline: true }
     ).preferredSize.width = 420;
 
@@ -253,25 +266,59 @@ app.bringToFront();
 
     if (dlg.show() !== 1) return null;
 
-    var startRow = parseInt(startEt.text, 10);
-    var endRow = parseInt(endEt.text, 10);
-    if (isNaN(startRow) || isNaN(endRow) || startRow < 1 || endRow < startRow) {
-      alert("Start/End row must be integers with End >= Start (min Start = 1).");
-      return null;
+    var startRow;
+    var endRow;
+    var rangeText = trim(rangeEt.text);
+    if (rangeText) {
+      var parsed = parseRowRange(rangeText);
+      if (parsed.error) {
+        alert("Row range must be like 101-104 or 101 (digits and an optional hyphen).");
+        return null;
+      }
+      startRow = parsed.start;
+      endRow = parsed.end;
+    } else {
+      startRow = parseInt(startEt.text, 10);
+      endRow = parseInt(endEt.text, 10);
+      if (isNaN(startRow) || isNaN(endRow) || startRow < 1 || endRow < 1) {
+        alert("Start/End row must be integers (min 1).");
+        return null;
+      }
+      if (endRow < startRow) {
+        var swapped = startRow;
+        startRow = endRow;
+        endRow = swapped;
+      }
     }
     if (!fileEt.text) {
       alert("Select a CSV file (or Excel).");
       return null;
     }
-    if (endRow - startRow + 1 > MAX_SLOTS) {
-      alert("Max " + MAX_SLOTS + " cards per sheet. Use a smaller row range.");
+    var nCards = endRow - startRow + 1;
+    if (nCards > slotCount) {
+      alert(
+        "Row range " +
+          startRow +
+          "-" +
+          endRow +
+          " is " +
+          nCards +
+          " cards, but this PSD has " +
+          slotCount +
+          " id group(s) (id1…id" +
+          slotCount +
+          ").\nUse a shorter range (max " +
+          slotCount +
+          ")."
+      );
       return null;
     }
 
     return {
       dataPath: fileEt.text,
       startRow: startRow,
-      endRow: endRow
+      endRow: endRow,
+      slotCount: slotCount
     };
   }
 
@@ -299,6 +346,47 @@ app.bringToFront();
 
   function trim(s) {
     return String(s == null ? "" : s).replace(/^\s+|\s+$/g, "");
+  }
+
+  // 1-based data rows after the header. "101-104", "101", or reversed "104-101".
+  function parseRowRange(text) {
+    var s = trim(String(text == null ? "" : text));
+    if (!s) return { error: "empty" };
+    var single = s.match(/^(\d+)$/);
+    if (single) {
+      var n = parseInt(single[1], 10);
+      if (isNaN(n) || n < 1) return { error: "invalid" };
+      return { start: n, end: n };
+    }
+    var pair = s.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (pair) {
+      var a = parseInt(pair[1], 10);
+      var b = parseInt(pair[2], 10);
+      if (isNaN(a) || isNaN(b) || a < 1 || b < 1) return { error: "invalid" };
+      if (a <= b) return { start: a, end: b };
+      return { start: b, end: a };
+    }
+    return { error: "invalid" };
+  }
+
+  function countIdGroups(doc) {
+    var found = 0;
+    var seen = {};
+    if (!doc) return MAX_SLOTS;
+    try {
+      walkLayers(doc, function (layer) {
+        if (!layer || layer.typename !== "LayerSet") return;
+        var m = String(layer.name || "").match(/^id\s*(\d+)$/i);
+        if (!m) return;
+        var n = parseInt(m[1], 10);
+        if (isNaN(n) || n < 1 || seen[n]) return;
+        seen[n] = true;
+        found++;
+      });
+    } catch (eCount) {
+      return MAX_SLOTS;
+    }
+    return found > 0 ? found : MAX_SLOTS;
   }
 
   function stripLeadingBom(text) {
@@ -345,30 +433,88 @@ app.bringToFront();
     return i >= 0 ? s.substring(i) : "";
   }
 
-  function readFile(path) {
+  function looksLikeInvalidUtf8(text) {
+    var s = String(text == null ? "" : text);
+    if (!s) return false;
+    if (s.indexOf("\uFFFD") >= 0) return true;
+    // Typical mojibake from invalid or mis-decoded UTF-8 (CP1252 leftover).
+    var hints = [
+      "Ã±",
+      "Ã‘",
+      "Ã¡",
+      "Ã©",
+      "Ã­",
+      "Ã³",
+      "Ãº",
+      "Ã¼",
+      "Ã¤",
+      "Ã¶",
+      "Â¿",
+      "Â¡",
+      "â€œ",
+      "â€˜",
+      "â€“",
+      "â€”",
+      "Ãƒ"
+    ];
+    var i;
+    for (i = 0; i < hints.length; i++) {
+      if (s.indexOf(hints[i]) >= 0) return true;
+    }
+    return false;
+  }
+
+  function tryReadFileEncoding(path, encoding) {
+    var f = new File(path);
+    var text = "";
+    try {
+      f.encoding = encoding;
+      f.open("r");
+      text = f.read();
+      f.close();
+    } catch (eRead) {
+      try {
+        f.close();
+      } catch (eClose) {}
+      text = "";
+    }
+    return text;
+  }
+
+  function readFileWithDetectedEncoding(path) {
     var f = new File(path);
     if (!f.exists) throw new Error("File not found:\n" + path);
 
-    // Ken saves CSV as UTF-8 from Google Sheets / Excel. SYSTEM (Windows-1252)
-    // turns ñ into Ã± so File(path).exists is false and names mojibake.
-    var encodings = ["UTF-8", "UTF8"];
+    // Ken has UTF-8 CSVs (Sheets/Excel) and older Windows-1252 lists, both with ñ.
+    var utfNames = ["UTF-8", "UTF8"];
+    var sysNames = ["SYSTEM", "Windows-1252", "CP1252"];
     var text = "";
+    var encodingUsed = "";
     var i;
-    for (i = 0; i < encodings.length; i++) {
-      try {
-        f.encoding = encodings[i];
-        f.open("r");
-        text = f.read();
-        f.close();
-        if (text && text.length) break;
-      } catch (eRead) {
-        try {
-          f.close();
-        } catch (eClose) {}
+    for (i = 0; i < utfNames.length; i++) {
+      text = tryReadFileEncoding(path, utfNames[i]);
+      if (text && text.length) {
+        encodingUsed = "UTF-8";
+        break;
+      }
+    }
+    if (text && looksLikeInvalidUtf8(text)) {
+      var fallback = "";
+      for (i = 0; i < sysNames.length; i++) {
+        fallback = tryReadFileEncoding(path, sysNames[i]);
+        if (fallback && fallback.length) {
+          text = fallback;
+          encodingUsed = "SYSTEM (Windows-1252)";
+          break;
+        }
       }
     }
     if (!text) throw new Error("Could not read file:\n" + path);
-    return stripLeadingBom(text);
+    return { text: stripLeadingBom(text), encoding: encodingUsed || "UTF-8" };
+  }
+
+  function readFile(path) {
+    return readFileWithDetectedEncoding(path).text;
   }
 
   // Integer → digit string without scientific notation (ExtendScript-safe)
@@ -613,14 +759,26 @@ app.bringToFront();
   function loadTable(path) {
     var ext = fileExt(path);
     if (ext === ".xlsx" || ext === ".xls" || ext === ".xlsm") {
-      return { rows: stripBomFromRows(parseExcel(path)), source: "Excel" };
+      return { rows: stripBomFromRows(parseExcel(path)), source: "Excel", encoding: "Excel" };
     }
     if (ext === ".tsv") {
-      return { rows: stripBomFromRows(parseTSV(readFile(path))), source: "TSV" };
+      var tsvDetected = readFileWithDetectedEncoding(path);
+      return {
+        rows: stripBomFromRows(parseTSV(tsvDetected.text)),
+        source: "TSV",
+        encoding: tsvDetected.encoding
+      };
     }
-    var raw = parseCSV(readFile(path));
+    var detected = readFileWithDetectedEncoding(path);
+    var raw = parseCSV(detected.text);
     var repaired = stripBomFromRows(coalesceBrokenCsvRows(raw));
-    return { rows: repaired, source: "CSV", rawRowCount: raw.length, repairedRowCount: repaired.length };
+    return {
+      rows: repaired,
+      source: "CSV",
+      encoding: detected.encoding,
+      rawRowCount: raw.length,
+      repairedRowCount: repaired.length
+    };
   }
 
   // Full-file CSV parse — keeps newlines that sit inside quoted cells
@@ -1553,6 +1711,13 @@ app.bringToFront();
     } catch (e1) {}
   }
 
+  function closeDocQuietly(opened) {
+    if (!opened) return;
+    try {
+      opened.close(SaveOptions.DONOTSAVECHANGES);
+    } catch (eCloseDoc) {}
+  }
+
   // Duplicate into THIS slot's group, directly before the placeholder.
   // File → Place in CS6 often lands one group above (id3 image → id4).
   function duplicateImageBefore(doc, placeholder, imgFile) {
@@ -1566,7 +1731,7 @@ app.bringToFront();
       }
       dup = src.activeLayer.duplicate(placeholder, ElementPlacement.PLACEBEFORE);
     } finally {
-      src.close(SaveOptions.DONOTSAVECHANGES);
+      closeDocQuietly(src);
       app.activeDocument = doc;
     }
     return dup;
@@ -1620,7 +1785,7 @@ app.bringToFront();
           src.selection.selectAll();
           src.selection.copy();
         } finally {
-          src.close(SaveOptions.DONOTSAVECHANGES);
+          closeDocQuietly(src);
         }
         app.activeDocument = doc;
         selectLayer(placeholder);
@@ -1799,11 +1964,13 @@ app.bringToFront();
     var dataOnly = rows.slice(1);
     var headerInfo = buildHeaderInfo(header);
     var filtered = filterStudentRows(header, dataOnly, headerInfo);
-    rows = [header].concat(filtered.rows);
-    dataOnly = filtered.rows;
+    // Range uses 1-based data rows after the header (Excel/Sheets row 2 = row 1).
+    // Blank/junk rows stay in place so they can be skipped and listed.
+    rows = [header].concat(dataOnly);
 
     var mapLines = [
       "Source: " + loaded.source,
+      "CSV encoding: " + (loaded.encoding || "n/a"),
       "Columns in file: " + header.length + " (wide sheets OK — match by header name)"
     ];
     if (loaded.rawRowCount && loaded.rawRowCount !== loaded.repairedRowCount) {
@@ -1859,26 +2026,20 @@ app.bringToFront();
     var dataRowCount = rows.length - 1;
     if (dataRowCount < 1) {
       throw new Error(
-        "No valid card rows found after CSV repair.\n" +
+        "No data rows found after CSV repair.\n" +
           "Re-export CSV from Sheets (Download → CSV)."
-      );
-    }
-    if (settings.endRow > dataRowCount) {
-      throw new Error(
-        "End row " +
-          settings.endRow +
-          " is past last card row (" +
-          dataRowCount +
-          ").\n" +
-          "Valid cards in this file: " +
-          dataRowCount +
-          "."
       );
     }
 
     var preview = [];
     for (var p = settings.startRow; p <= settings.endRow; p++) {
-      preview.push("  " + p + " = " + rowDisplayName(rows[p], headerInfo, dataOnly));
+      if (p > dataRowCount || !rows[p]) {
+        preview.push("  " + p + " = (past end of CSV — skipped)");
+      } else if (!isValidCardRow(rows[p], headerInfo, dataOnly)) {
+        preview.push("  " + p + " = (blank — skipped)");
+      } else {
+        preview.push("  " + p + " = " + rowDisplayName(rows[p], headerInfo, dataOnly));
+      }
     }
 
     // Image path pre-check (PictureA/PictureB/…) — warn only, never abort
@@ -1901,6 +2062,10 @@ app.bringToFront();
       }
       var pr;
       for (pr = settings.startRow; pr <= settings.endRow; pr++) {
+        if (pr > dataRowCount || !rows[pr]) {
+          pathPreview.push("  r" + pr + " " + colLabel + " = (past end of CSV — skipped)");
+          continue;
+        }
         var cv = rows[pr][pidx] != null ? trim(rows[pr][pidx]) : "";
         var exists = false;
         if (cv && looksLikeImagePath(cv)) {
@@ -1930,11 +2095,15 @@ app.bringToFront();
     }
 
     batchLog.lines.push(
-      "Valid cards: " +
+      "Data rows: " +
         dataRowCount +
+        " · valid cards: " +
+        filtered.rows.length +
         " (" +
         loaded.source +
-        ") · filling " +
+        ") · encoding: " +
+        (loaded.encoding || "n/a") +
+        " · filling " +
         settings.startRow +
         "–" +
         settings.endRow +
@@ -1954,28 +2123,55 @@ app.bringToFront();
       );
     }
 
-    for (var r = settings.startRow; r <= settings.endRow; r++) {
-      try {
-        fillSlot(
-          doc,
-          r - settings.startRow + 1,
-          r,
-          rows[r],
-          headerInfo,
-          dataOnly,
-          batchLog
-        );
-      } catch (eRow) {
-        batchLog.skipped.push(
-          formatSkip(
-            r,
-            "(row)",
-            rowDisplayName(rows[r], headerInfo, dataOnly),
-            eRow && eRow.message ? eRow.message : "row error"
-          )
-        );
+    var fillDone = false;
+    function runFillSlots() {
+      if (fillDone) return;
+      fillDone = true;
+      var r;
+      for (r = settings.startRow; r <= settings.endRow; r++) {
+        var cells = rows[r];
+        var slot = r - settings.startRow + 1;
+        if (!cells || r > dataRowCount) {
+          batchLog.skipped.push(formatSkip(r, "(row)", "", "past end of CSV"));
+          continue;
+        }
+        if (!isValidCardRow(cells, headerInfo, dataOnly)) {
+          batchLog.skipped.push(
+            formatSkip(
+              r,
+              "(row)",
+              rowDisplayName(cells, headerInfo, dataOnly),
+              "blank / not a card row"
+            )
+          );
+          continue;
+        }
+        try {
+          fillSlot(doc, slot, r, cells, headerInfo, dataOnly, batchLog);
+        } catch (eRow) {
+          batchLog.skipped.push(
+            formatSkip(
+              r,
+              "(row)",
+              rowDisplayName(cells, headerInfo, dataOnly),
+              eRow && eRow.message ? eRow.message : "row error"
+            )
+          );
+        }
       }
     }
+
+    // One History step; skip CS6 screen refresh.
+    try {
+      $.global.__psNftRunFill = runFillSlots;
+      doc.suspendHistory("NFT Back Fill", "$.global.__psNftRunFill()");
+    } catch (eHist) {
+    } finally {
+      try {
+        $.global.__psNftRunFill = null;
+      } catch (eG) {}
+    }
+    if (!fillDone) runFillSlots();
 
     app.displayDialogs = DialogModes.ALL;
     var summary = [];

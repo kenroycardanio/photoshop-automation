@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Dummy-data tests for CSV UTF-8 read, path fallbacks, and skip formatting.
+ * Dummy-data tests for CSV UTF-8 / Windows-1252 read, Data20 fields,
+ * row-range parsing, path fallbacks, and skip formatting.
  * Photoshop is not required. Helpers are extracted from the JSX (ES3).
  *
  *   node test/run_tests.js
@@ -11,8 +12,10 @@ var path = require("path");
 
 var ROOT = path.resolve(__dirname, "..");
 var NFT_JSX = path.join(ROOT, "back_fill_NFT.jsx");
+var DATA20_JSX = path.join(ROOT, "back_fill_NFT_Data20.jsx");
 var BATCH_JSX = path.join(ROOT, "batch_fill.jsx");
 var SAMPLE_MEMBERS = path.join(ROOT, "sample_NFT_members.csv");
+var SAMPLE_DATA20 = path.join(ROOT, "sample_NFT_data20.csv");
 
 var passed = 0;
 var failed = 0;
@@ -123,9 +126,16 @@ MockFile.prototype.open = function () {
 };
 MockFile.prototype.read = function () {
   var buf = fs.readFileSync(this._path);
-  var enc = String(this.encoding || "UTF-8").toUpperCase();
+  var enc = String(this.encoding || "UTF-8").toUpperCase().replace(/_/g, "-");
   if (enc === "UTF-8" || enc === "UTF8") return buf.toString("utf8");
-  if (enc === "SYSTEM") return buf.toString("latin1");
+  if (
+    enc === "SYSTEM" ||
+    enc === "WINDOWS-1252" ||
+    enc === "CP1252" ||
+    enc === "WINDOWS1252"
+  ) {
+    return buf.toString("latin1");
+  }
   return buf.toString("utf8");
 };
 MockFile.prototype.close = function () {
@@ -158,6 +168,10 @@ function loadHelpers(jsxPath) {
     "formatSkip",
     "fileExt",
     "readFile",
+    "parseRowRange",
+    "looksLikeInvalidUtf8",
+    "tryReadFileEncoding",
+    "readFileWithDetectedEncoding",
     "unescapeTsvCell",
     "parseTSV",
     "parseCSV",
@@ -195,7 +209,7 @@ function loadHelpers(jsxPath) {
   eval(
     "function findQrFileInFolder() { return null; }\n" +
       code.join("\n") +
-      ";\nhelpers = { trim: trim, stripLeadingBom: stripLeadingBom, stripBomFromRows: stripBomFromRows, formatSkip: formatSkip, fileExt: fileExt, readFile: readFile, parseCSV: parseCSV, parseTSV: typeof parseTSV === 'function' ? parseTSV : null, coalesceBrokenCsvRows: coalesceBrokenCsvRows, looksLikeImagePath: looksLikeImagePath, normalizeLocalPath: normalizeLocalPath, decodedPathVariants: decodedPathVariants, resolveImageFile: resolveImageFile, rowDisplayName: typeof rowDisplayName === 'function' ? rowDisplayName : null, buildHeaderInfo: typeof buildHeaderInfo === 'function' ? buildHeaderInfo : null, isValidCardRow: typeof isValidCardRow === 'function' ? isValidCardRow : null, filterStudentRows: typeof filterStudentRows === 'function' ? filterStudentRows : null };"
+      ";\nhelpers = { trim: trim, stripLeadingBom: stripLeadingBom, stripBomFromRows: stripBomFromRows, formatSkip: formatSkip, fileExt: fileExt, readFile: readFile, parseCSV: parseCSV, parseTSV: typeof parseTSV === 'function' ? parseTSV : null, coalesceBrokenCsvRows: coalesceBrokenCsvRows, looksLikeImagePath: looksLikeImagePath, normalizeLocalPath: normalizeLocalPath, decodedPathVariants: decodedPathVariants, resolveImageFile: resolveImageFile, rowDisplayName: typeof rowDisplayName === 'function' ? rowDisplayName : null, buildHeaderInfo: typeof buildHeaderInfo === 'function' ? buildHeaderInfo : null, resolveColumnIndex: typeof resolveColumnIndex === 'function' ? resolveColumnIndex : null, isValidCardRow: typeof isValidCardRow === 'function' ? isValidCardRow : null, filterStudentRows: typeof filterStudentRows === 'function' ? filterStudentRows : null, parseRowRange: typeof parseRowRange === 'function' ? parseRowRange : null, looksLikeInvalidUtf8: typeof looksLikeInvalidUtf8 === 'function' ? looksLikeInvalidUtf8 : null, readFileWithDetectedEncoding: typeof readFileWithDetectedEncoding === 'function' ? readFileWithDetectedEncoding : null };"
   );
   helpers.File = File;
   return helpers;
@@ -208,24 +222,30 @@ function writeBomCsv(filePath, bodyUtf8) {
   );
 }
 
+function listDataFieldLetters(src) {
+  var letters = [];
+  var re = /prefix:\s*"data([A-Z])"/g;
+  var m;
+  while ((m = re.exec(src))) letters.push(m[1]);
+  return letters;
+}
+
 function testSourceContracts() {
-  var files = [NFT_JSX, BATCH_JSX];
+  var batchSrc = fs.readFileSync(BATCH_JSX, "utf8");
+  assert(
+    /var encodings = \["UTF-8", "UTF8"\]/.test(batchSrc),
+    "batch_fill.jsx reads CSV as UTF-8 first"
+  );
+  assert(
+    batchSrc.indexOf('encodings = ["SYSTEM"') < 0,
+    "batch_fill.jsx does not prefer SYSTEM encoding"
+  );
+
+  var files = [NFT_JSX, DATA20_JSX, BATCH_JSX];
   var i;
   for (i = 0; i < files.length; i++) {
     var src = fs.readFileSync(files[i], "utf8");
     var label = path.basename(files[i]);
-    assert(
-      /var encodings = \["UTF-8", "UTF8"\]/.test(src),
-      label + " reads CSV as UTF-8 first"
-    );
-    assert(
-      src.indexOf('encodings = ["SYSTEM"') < 0,
-      label + " does not prefer SYSTEM encoding"
-    );
-    assert(
-      src.indexOf("f.encoding = encodings[i]") >= 0,
-      label + " sets file.encoding"
-    );
     assert(
       src.indexOf("Those fields will be skipped") >= 0,
       label + " treats missing image files as skip/continue"
@@ -245,6 +265,64 @@ function testSourceContracts() {
     assert(
       src.indexOf(".slice(0, 30)") < 0 && src.indexOf(".slice(0, 20)") < 0,
       label + " does not truncate the skipped list"
+    );
+  }
+
+  var nftFiles = [NFT_JSX, DATA20_JSX];
+  for (i = 0; i < nftFiles.length; i++) {
+    var nftSrc = fs.readFileSync(nftFiles[i], "utf8");
+    var nftLabel = path.basename(nftFiles[i]);
+    assert(
+      nftSrc.indexOf("function looksLikeInvalidUtf8") >= 0,
+      nftLabel + " detects invalid UTF-8"
+    );
+    assert(
+      nftSrc.indexOf("function readFileWithDetectedEncoding") >= 0,
+      nftLabel + " auto-detects CSV encoding"
+    );
+    assert(
+      nftSrc.indexOf('utfNames = ["UTF-8", "UTF8"]') >= 0,
+      nftLabel + " tries UTF-8 before SYSTEM"
+    );
+    assert(
+      nftSrc.indexOf("SYSTEM (Windows-1252)") >= 0,
+      nftLabel + " falls back to SYSTEM/Windows-1252"
+    );
+    assert(
+      nftSrc.indexOf("function parseRowRange") >= 0,
+      nftLabel + " parses a typed row range"
+    );
+    assert(
+      nftSrc.indexOf("Row range:") >= 0 && nftSrc.indexOf("Start row:") >= 0,
+      nftLabel + " keeps Start/End fields and a Row range field"
+    );
+    assert(
+      nftSrc.indexOf("past end of CSV") >= 0,
+      nftLabel + " skips rows past the end of the CSV"
+    );
+    assert(
+      nftSrc.indexOf("blank / not a card row") >= 0,
+      nftLabel + " skips blank rows instead of crashing"
+    );
+    assert(
+      nftSrc.indexOf("suspendHistory") >= 0,
+      nftLabel + " wraps the fill in one History step"
+    );
+    assert(
+      nftSrc.indexOf("app.refresh(") < 0,
+      nftLabel + " does not call app.refresh()"
+    );
+    assert(
+      nftSrc.indexOf("function closeDocQuietly") >= 0,
+      nftLabel + " closes temporary placed documents"
+    );
+    assert(
+      nftSrc.indexOf("CSV encoding:") >= 0,
+      nftLabel + " logs the encoding used in the summary"
+    );
+    assert(
+      nftSrc.indexOf("1 = first data row after the header") >= 0,
+      nftLabel + " documents the data-row numbering convention"
     );
   }
 }
@@ -333,6 +411,157 @@ function testPathFallbacks(h) {
   assert(skip.indexOf("file not found") >= 0, "skip line includes reason");
 }
 
+function writeUtf8PenaCsv(filePath) {
+  fs.writeFileSync(
+    filePath,
+    "DataA,DataB,firstName,lastName\nCEB-XX0097,Juan Peña,Juan,Peña\n",
+    "utf8"
+  );
+}
+
+function writeCp1252PenaCsv(filePath) {
+  fs.writeFileSync(
+    filePath,
+    Buffer.concat([
+      Buffer.from("DataA,DataB,firstName,lastName\nCEB-XX0098,Juan Pe", "ascii"),
+      Buffer.from([0xf1]),
+      Buffer.from("a,Juan,Pe", "ascii"),
+      Buffer.from([0xf1]),
+      Buffer.from("a\n", "ascii")
+    ])
+  );
+}
+
+function testEncodingFallback(h, label) {
+  assert(!!h.looksLikeInvalidUtf8, label + " exports looksLikeInvalidUtf8");
+  assert(!!h.readFileWithDetectedEncoding, label + " exports readFileWithDetectedEncoding");
+  assert(h.looksLikeInvalidUtf8("Juan Peña") === false, label + " UTF-8 Peña is valid UTF-8");
+  assert(
+    h.looksLikeInvalidUtf8("Juan Pe\uFFFDa") === true,
+    label + " U+FFFD replacement marks invalid UTF-8"
+  );
+  assert(
+    h.looksLikeInvalidUtf8("Juan PeÃ±a") === true,
+    label + " typical Ã± mojibake marks invalid UTF-8"
+  );
+
+  var utfPath = path.join(os.tmpdir(), "ps_utf8_pena_" + label + ".csv");
+  var cpPath = path.join(os.tmpdir(), "ps_cp1252_pena_" + label + ".csv");
+  writeUtf8PenaCsv(utfPath);
+  writeCp1252PenaCsv(cpPath);
+
+  var utf = h.readFileWithDetectedEncoding(utfPath);
+  assert(utf.encoding.indexOf("UTF-8") >= 0, label + " UTF-8 file is read as UTF-8");
+  assert(utf.text.indexOf("Juan Peña") >= 0, label + " UTF-8 file keeps Juan Peña");
+  assert(utf.text.indexOf("\uFFFD") < 0, label + " UTF-8 file has no replacement char");
+
+  var cp = h.readFileWithDetectedEncoding(cpPath);
+  assert(
+    cp.encoding.indexOf("SYSTEM") >= 0,
+    label + " Windows-1252 file falls back to SYSTEM/Windows-1252"
+  );
+  assert(
+    cp.text.indexOf("Juan Peña") >= 0,
+    label + " Windows-1252 file decodes Juan Peña after fallback"
+  );
+  assert(
+    cp.text.indexOf("\uFFFD") < 0,
+    label + " Windows-1252 fallback does not leave replacement chars"
+  );
+
+  var utfRows = h.parseCSV(utf.text);
+  var cpRows = h.parseCSV(cp.text);
+  assert(utfRows[1][1] === "Juan Peña", label + " parsed UTF-8 DataB is Juan Peña");
+  assert(cpRows[1][1] === "Juan Peña", label + " parsed CP1252 DataB is Juan Peña");
+}
+
+function testRowRangeParsing(h, label) {
+  assert(!!h.parseRowRange, label + " exports parseRowRange");
+  var a = h.parseRowRange("101-104");
+  assert(!a.error && a.start === 101 && a.end === 104, label + " parses 101-104");
+  var b = h.parseRowRange("101");
+  assert(!b.error && b.start === 101 && b.end === 101, label + " parses 101 as a single row");
+  var c = h.parseRowRange("104-101");
+  assert(!c.error && c.start === 101 && c.end === 104, label + " reverses 104-101");
+  var d = h.parseRowRange(" 101 - 104 ");
+  assert(!d.error && d.start === 101 && d.end === 104, label + " allows spaces around the hyphen");
+  var e = h.parseRowRange("abc");
+  assert(!!e.error, label + " rejects abc");
+  var f = h.parseRowRange("10-");
+  assert(!!f.error, label + " rejects 10-");
+  var g = h.parseRowRange("101-104-105");
+  assert(!!g.error, label + " rejects 101-104-105");
+  var hEmpty = h.parseRowRange("");
+  assert(hEmpty.error === "empty", label + " empty range is empty (dialog uses Start/End)");
+  var iZero = h.parseRowRange("0");
+  assert(!!iZero.error, label + " rejects 0");
+  var jNeg = h.parseRowRange("-5");
+  assert(!!jNeg.error, label + " rejects -5");
+}
+
+function testData20Fields(h) {
+  var src10 = fs.readFileSync(NFT_JSX, "utf8");
+  var src20 = fs.readFileSync(DATA20_JSX, "utf8");
+  var letters10 = listDataFieldLetters(src10);
+  var letters20 = listDataFieldLetters(src20);
+  assert(letters10.length === 10, "Data10 script has 10 data fields (A-J)");
+  assert(letters10[0] === "A" && letters10[9] === "J", "Data10 fields are DataA-DataJ");
+  assert(src10.indexOf('prefix: "dataT"') < 0, "Data10 script does not define DataT");
+  assert(
+    src10.indexOf("/^(smart|data)([A-Ja-j])$/i") >= 0,
+    "Data10 lookup regex stays A-J"
+  );
+  assert(letters20.length === 20, "Data20 script has 20 data fields (A-T)");
+  assert(letters20[0] === "A" && letters20[19] === "T", "Data20 fields are DataA-DataT");
+  assert(
+    src20.indexOf("/^(smart|data)([A-Ta-t])$/i") >= 0,
+    "Data20 lookup regex is widened to A-T"
+  );
+  assert(src20.indexOf("Data20: DataA-DataT") >= 0, "Data20 header/help says Data20: DataA-DataT");
+  assert(src20.indexOf('columnAliases: ["Data K"]') >= 0, "DataK has column alias Data K");
+  assert(src20.indexOf('layerAliases: ["dataK"]') >= 0, "DataK has layer alias dataK");
+  assert(src20.indexOf('columnAliases: ["Data T"]') >= 0, "DataT has column alias Data T");
+  assert(src20.indexOf('layerAliases: ["dataT"]') >= 0, "DataT has layer alias dataT");
+
+  var sample = fs.readFileSync(SAMPLE_DATA20, "utf8");
+  assert(sample.indexOf("DataT") >= 0, "sample_NFT_data20.csv has a DataT column");
+  assert(sample.indexOf("Juan Peña") >= 0, "sample_NFT_data20.csv uses dummy name Juan Peña");
+  var rows = h.stripBomFromRows(h.parseCSV(h.readFile(SAMPLE_DATA20)));
+  var header = rows[0];
+  var dataLetters = "ABCDEFGHIJKLMNOPQRST";
+  var di;
+  for (di = 0; di < dataLetters.length; di++) {
+    var want = "Data" + dataLetters.charAt(di);
+    var found = false;
+    var hi;
+    for (hi = 0; hi < header.length; hi++) {
+      if (header[hi] === want) found = true;
+    }
+    assert(found, "sample_NFT_data20.csv header includes " + want);
+  }
+  assert(rows.length === 5, "sample_NFT_data20.csv has header + 4 dummy rows");
+  if (h.buildHeaderInfo && h.resolveColumnIndex) {
+    var info = h.buildHeaderInfo(header);
+    var idxT = h.resolveColumnIndex(
+      info,
+      {
+        prefix: "dataT",
+        column: "DataT",
+        columnAliases: ["Data T"],
+        type: "text"
+      },
+      rows.slice(1)
+    );
+    assert(idxT !== undefined, "Data20 resolveColumnIndex finds DataT");
+    var idxAlias = h.resolveColumnIndex(
+      info,
+      { prefix: "dataK", column: "DataK", columnAliases: ["Data K"], type: "text" },
+      rows.slice(1)
+    );
+    assert(idxAlias !== undefined, "Data20 resolveColumnIndex finds DataK");
+  }
+}
+
 function testSkipContinueLogic() {
   // Simulate the pre-check: missing files add a warning, never throw.
   var missingFiles = 1;
@@ -374,12 +603,18 @@ function testSkipContinueLogic() {
 function main() {
   testSourceContracts();
   var nft = loadHelpers(NFT_JSX);
+  var data20 = loadHelpers(DATA20_JSX);
   var batch = loadHelpers(BATCH_JSX);
   testUtf8SampleAndBom(nft);
   testUtf8SampleAndBom(batch);
   testPathFallbacks(nft);
   testPathFallbacks(batch);
   testSkipContinueLogic();
+  testEncodingFallback(nft, "back_fill_NFT.jsx");
+  testEncodingFallback(data20, "back_fill_NFT_Data20.jsx");
+  testRowRangeParsing(nft, "back_fill_NFT.jsx");
+  testRowRangeParsing(data20, "back_fill_NFT_Data20.jsx");
+  testData20Fields(data20);
 
   console.log("Passed: " + passed + "  Failed: " + failed);
   if (failed) process.exit(1);

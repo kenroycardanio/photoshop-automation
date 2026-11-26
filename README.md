@@ -2,7 +2,7 @@
 
 Fill **4 or 5 student IDs on one PSD** from a **CSV** (default). Excel (`.xlsx`) is optional.
 
-**CSV encoding:** save / export as **UTF-8** (Google Sheets → Download → CSV, or Excel → CSV UTF-8). Names and paths with **ñ** or other accents will otherwise become mojibake (`SeÃ±ara`) and fail `File(path).exists`.
+**CSV encoding:** prefer **UTF-8** (Google Sheets → Download → CSV, or Excel → CSV UTF-8). NFT scripts try UTF-8 first, then fall back to **Windows-1252** (SYSTEM) if the file is an older ANSI export (both can contain **ñ**). The run summary logs which encoding was used.
 
 **Missing files:** if a picture/QR path is not found, that field is **skipped** (the rest of the sheet still fills). The end-of-run summary lists every skipped item (row, column, value). A missing-file pre-check is a warning, not a stop.
 
@@ -31,11 +31,13 @@ Groups: **`id1`**, **`id2`**, **`id3`**, **`id4`**, **`id5`** (lowercase).
 
 ## How rows map to groups
 
-| You run (start → end) | CSV rows | Groups filled |
-|----------------------|----------|---------------|
-| 1 → 5 | rows 1–5 | `id1` … `id5` |
-| 6 → 10 | rows 6–10 | `id1` … `id5` again (next sheet) |
-| 1 → 4 | rows 1–4 | `id1` … `id4` only (4-up) |
+**Row numbers are 1-based data rows after the header.** Row **1** is the first person/card in the CSV (Excel/Sheets **row 2**, because the header is spreadsheet row 1). The `#` column is **ignored**.
+
+| You run (start → end) | CSV data rows | Groups filled |
+|----------------------|---------------|---------------|
+| 1 → 5 | first 5 data rows | `id1` … `id5` |
+| 6 → 10 | data rows 6–10 | `id1` … `id5` again (next sheet) |
+| 1 → 4 | first 4 data rows | `id1` … `id4` only (4-up) |
 
 ## Layer names inside each group
 
@@ -79,9 +81,16 @@ See `Photoshop_Layer_Codes.csv` for the full reference table.
 
 ## NFT client — `back_fill_NFT.jsx`
 
-Same workflow (CSV + start/end row → `id1`…`id5`). Sheet: **NFT CARDS**.
+Same workflow (CSV + row range → `id1`…`id5`). Sheet: **NFT CARDS**. **Data10:** optional text fields **DataA–DataJ**.
 
-Save the CSV as **UTF-8** so names like `Juan Peña` and paths like `Minna Señara.jpg` fill correctly. Missing **PictureA** / **PictureB** files (and other per-row/per-field errors) are **skipped and listed** in the final summary — they do not abort the run. The PictureA pre-check stays visible as a warning.
+Prefer UTF-8 so names like `Juan Peña` and paths like `Minna Señara.jpg` fill correctly. Older Windows-1252 CSVs with **ñ** are auto-detected (UTF-8 first; fallback if the decode has `U+FFFD` or typical mojibake). The summary line **CSV encoding:** shows `UTF-8` or `SYSTEM (Windows-1252)`. Missing **PictureA** / **PictureB** files (and other per-row/per-field errors) are **skipped and listed** in the final summary — they do not abort the run. The PictureA pre-check stays visible as a warning.
+
+### Row range
+
+- **Convention:** row **1** = first data row after the header (Excel/Sheets row 2). The `#` column is ignored.
+- Type **Row range** `101-104` (or `101`) to fill those data rows into `id1`… in order. Separate **Start row** / **End row** still work when the range box is empty.
+- Template with `id1`–`id5`: `101-106` is rejected (6 cards, only 5 groups).
+- Data row 200 when the file only has 50 rows, or a blank/junk row in range: skipped and listed; other cards still fill.
 
 Headers are matched **by name** (case-insensitive; spaces and underscores ignored), not by column position. Missing columns and missing optional text layers are skipped quietly — they are not counted as errors.
 
@@ -124,4 +133,16 @@ Optional text layers (`dataA1`, `nickname1`, `firstName1`, …) are filled when 
 
 See `Photoshop_Layer_Codes_NFT.csv` for the full NFT layer table.
 
-CSV UTF-8 parsing and skip-on-missing checks (dummy data, no Photoshop): `node test/run_tests.js`
+---
+
+## Data20 — `back_fill_NFT_Data20.jsx`
+
+Same script as `back_fill_NFT.jsx` (UTF-8 / Windows-1252 auto-detect, skip-and-report, row range, one History step) with the text-field cap raised to **Data20: DataA-DataT**.
+
+| Extra layers (in `id1`) | CSV column |
+|-------------------------|------------|
+| `dataK1` … `dataT1` | **DataK** … **DataT** (also `Data K` … `Data T`) |
+
+Use this when the PSD has `dataK`…`dataT` layers. Keep using `back_fill_NFT.jsx` for the 10-data template (DataA–DataJ only). Dummy sample: `sample_NFT_data20.csv`.
+
+CSV encoding, Data20 field list, and row-range parsing checks (dummy data, no Photoshop): `node test/run_tests.js`
