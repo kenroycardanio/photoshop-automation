@@ -168,7 +168,7 @@ function loadHelpers(jsxPath) {
     "formatSkip",
     "fileExt",
     "readFile",
-    "parseRowRange",
+    "parseRowList",
     "looksLikeInvalidUtf8",
     "tryReadFileEncoding",
     "readFileWithDetectedEncoding",
@@ -209,7 +209,7 @@ function loadHelpers(jsxPath) {
   eval(
     "function findQrFileInFolder() { return null; }\n" +
       code.join("\n") +
-      ";\nhelpers = { trim: trim, stripLeadingBom: stripLeadingBom, stripBomFromRows: stripBomFromRows, formatSkip: formatSkip, fileExt: fileExt, readFile: readFile, parseCSV: parseCSV, parseTSV: typeof parseTSV === 'function' ? parseTSV : null, coalesceBrokenCsvRows: coalesceBrokenCsvRows, looksLikeImagePath: looksLikeImagePath, normalizeLocalPath: normalizeLocalPath, decodedPathVariants: decodedPathVariants, resolveImageFile: resolveImageFile, rowDisplayName: typeof rowDisplayName === 'function' ? rowDisplayName : null, buildHeaderInfo: typeof buildHeaderInfo === 'function' ? buildHeaderInfo : null, resolveColumnIndex: typeof resolveColumnIndex === 'function' ? resolveColumnIndex : null, isValidCardRow: typeof isValidCardRow === 'function' ? isValidCardRow : null, filterStudentRows: typeof filterStudentRows === 'function' ? filterStudentRows : null, parseRowRange: typeof parseRowRange === 'function' ? parseRowRange : null, looksLikeInvalidUtf8: typeof looksLikeInvalidUtf8 === 'function' ? looksLikeInvalidUtf8 : null, readFileWithDetectedEncoding: typeof readFileWithDetectedEncoding === 'function' ? readFileWithDetectedEncoding : null };"
+      ";\nhelpers = { trim: trim, stripLeadingBom: stripLeadingBom, stripBomFromRows: stripBomFromRows, formatSkip: formatSkip, fileExt: fileExt, readFile: readFile, parseCSV: parseCSV, parseTSV: typeof parseTSV === 'function' ? parseTSV : null, coalesceBrokenCsvRows: coalesceBrokenCsvRows, looksLikeImagePath: looksLikeImagePath, normalizeLocalPath: normalizeLocalPath, decodedPathVariants: decodedPathVariants, resolveImageFile: resolveImageFile, rowDisplayName: typeof rowDisplayName === 'function' ? rowDisplayName : null, buildHeaderInfo: typeof buildHeaderInfo === 'function' ? buildHeaderInfo : null, resolveColumnIndex: typeof resolveColumnIndex === 'function' ? resolveColumnIndex : null, isValidCardRow: typeof isValidCardRow === 'function' ? isValidCardRow : null, filterStudentRows: typeof filterStudentRows === 'function' ? filterStudentRows : null, parseRowList: typeof parseRowList === 'function' ? parseRowList : null, looksLikeInvalidUtf8: typeof looksLikeInvalidUtf8 === 'function' ? looksLikeInvalidUtf8 : null, readFileWithDetectedEncoding: typeof readFileWithDetectedEncoding === 'function' ? readFileWithDetectedEncoding : null };"
   );
   helpers.File = File;
   return helpers;
@@ -289,12 +289,20 @@ function testSourceContracts() {
       nftLabel + " falls back to SYSTEM/Windows-1252"
     );
     assert(
-      nftSrc.indexOf("function parseRowRange") >= 0,
-      nftLabel + " parses a typed row range"
+      nftSrc.indexOf("function parseRowList") >= 0,
+      nftLabel + " parses a typed Rows list"
     );
     assert(
-      nftSrc.indexOf("Row range:") >= 0 && nftSrc.indexOf("Start row:") >= 0,
-      nftLabel + " keeps Start/End fields and a Row range field"
+      nftSrc.indexOf('"Rows:"') >= 0,
+      nftLabel + " has a single Rows field"
+    );
+    assert(
+      nftSrc.indexOf("Start row:") < 0 && nftSrc.indexOf("End row:") < 0,
+      nftLabel + " does not show Start row or End row"
+    );
+    assert(
+      nftSrc.indexOf("e.g. 102-104 or 102,103,107") >= 0,
+      nftLabel + " hints 102-104 or 102,103,107"
     );
     assert(
       nftSrc.indexOf("past end of CSV") >= 0,
@@ -475,28 +483,66 @@ function testEncodingFallback(h, label) {
   assert(cpRows[1][1] === "Juan Peña", label + " parsed CP1252 DataB is Juan Peña");
 }
 
-function testRowRangeParsing(h, label) {
-  assert(!!h.parseRowRange, label + " exports parseRowRange");
-  var a = h.parseRowRange("101-104");
-  assert(!a.error && a.start === 101 && a.end === 104, label + " parses 101-104");
-  var b = h.parseRowRange("101");
-  assert(!b.error && b.start === 101 && b.end === 101, label + " parses 101 as a single row");
-  var c = h.parseRowRange("104-101");
-  assert(!c.error && c.start === 101 && c.end === 104, label + " reverses 104-101");
-  var d = h.parseRowRange(" 101 - 104 ");
-  assert(!d.error && d.start === 101 && d.end === 104, label + " allows spaces around the hyphen");
-  var e = h.parseRowRange("abc");
+function rowsEqual(got, want) {
+  if (!got || got.length !== want.length) return false;
+  var i;
+  for (i = 0; i < want.length; i++) {
+    if (got[i] !== want[i]) return false;
+  }
+  return true;
+}
+
+function testRowListParsing(h, label) {
+  assert(!!h.parseRowList, label + " exports parseRowList");
+  var a = h.parseRowList("102-104");
+  assert(!a.error && rowsEqual(a.rows, [102, 103, 104]), label + " parses 102-104 as 102,103,104");
+  var b = h.parseRowList("102,103,107");
+  assert(!b.error && rowsEqual(b.rows, [102, 103, 107]), label + " parses 102,103,107");
+  var mixed = h.parseRowList("102-104,107");
+  assert(
+    !mixed.error && rowsEqual(mixed.rows, [102, 103, 104, 107]),
+    label + " parses mixed 102-104,107"
+  );
+  var single = h.parseRowList("102");
+  assert(!single.error && rowsEqual(single.rows, [102]), label + " parses 102 as a single row");
+  var rev = h.parseRowList("104-102");
+  assert(!rev.error && rowsEqual(rev.rows, [102, 103, 104]), label + " reversed 104-102 expands ascending");
+  var spaced = h.parseRowList(" 102 - 104 , 107 ");
+  assert(
+    !spaced.error && rowsEqual(spaced.rows, [102, 103, 104, 107]),
+    label + " allows spaces around commas and hyphens"
+  );
+  var order = h.parseRowList("107,102-104");
+  assert(
+    !order.error && rowsEqual(order.rows, [107, 102, 103, 104]),
+    label + " keeps typed order when a range follows a single"
+  );
+  var dups = h.parseRowList("102,102-104");
+  assert(
+    !dups.error && rowsEqual(dups.rows, [102, 103, 104]),
+    label + " drops duplicates and keeps first occurrence"
+  );
+  var dupsList = h.parseRowList("102,103,102");
+  assert(
+    !dupsList.error && rowsEqual(dupsList.rows, [102, 103]),
+    label + " drops duplicate singles"
+  );
+  var e = h.parseRowList("abc");
   assert(!!e.error, label + " rejects abc");
-  var f = h.parseRowRange("10-");
+  var f = h.parseRowList("10-");
   assert(!!f.error, label + " rejects 10-");
-  var g = h.parseRowRange("101-104-105");
+  var g = h.parseRowList("101-104-105");
   assert(!!g.error, label + " rejects 101-104-105");
-  var hEmpty = h.parseRowRange("");
-  assert(hEmpty.error === "empty", label + " empty range is empty (dialog uses Start/End)");
-  var iZero = h.parseRowRange("0");
+  var hEmpty = h.parseRowList("");
+  assert(hEmpty.error === "empty", label + " rejects empty Rows");
+  var iZero = h.parseRowList("0");
   assert(!!iZero.error, label + " rejects 0");
-  var jNeg = h.parseRowRange("-5");
+  var jNeg = h.parseRowList("-5");
   assert(!!jNeg.error, label + " rejects -5");
+  var lettersMix = h.parseRowList("102,a");
+  assert(!!lettersMix.error, label + " rejects letters mixed with numbers");
+  var emptySlot = h.parseRowList("102,,103");
+  assert(!!emptySlot.error, label + " rejects an empty comma slot");
 }
 
 function testData20Fields(h) {
@@ -618,8 +664,8 @@ function main() {
   testSkipContinueLogic();
   testEncodingFallback(nft, "back_fill_NFT.jsx");
   testEncodingFallback(data20, "Data20.jsx");
-  testRowRangeParsing(nft, "back_fill_NFT.jsx");
-  testRowRangeParsing(data20, "Data20.jsx");
+  testRowListParsing(nft, "back_fill_NFT.jsx");
+  testRowListParsing(data20, "Data20.jsx");
   testData20Fields(data20);
 
   console.log("Passed: " + passed + "  Failed: " + failed);

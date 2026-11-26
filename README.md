@@ -81,16 +81,19 @@ See `Photoshop_Layer_Codes.csv` for the full reference table.
 
 ## NFT client — `back_fill_NFT.jsx`
 
-Same workflow (CSV + row range → `id1`…`id5`). Sheet: **NFT CARDS**. **Data10:** optional text fields **DataA–DataJ**.
+Same workflow (CSV + **Rows** list → `id1`…`id5`). Sheet: **NFT CARDS**. **Data10:** optional text fields **DataA–DataJ**.
 
 Prefer UTF-8 so names like `Juan Peña` and paths like `Minna Señara.jpg` fill correctly. Older Windows-1252 CSVs with **ñ** are auto-detected (UTF-8 first; fallback if the decode has `U+FFFD` or typical mojibake). The summary line **CSV encoding:** shows `UTF-8` or `SYSTEM (Windows-1252)`. Missing **PictureA** / **PictureB** files (and other per-row/per-field errors) are **skipped and listed** in the final summary — they do not abort the run. The PictureA pre-check stays visible as a warning.
 
-### Row range
+### Rows
+
+One field labeled **Rows** (no Start/End). Hint: `e.g. 102-104 or 102,103,107`.
 
 - **Convention:** row **1** = first data row after the header (Excel/Sheets row 2). The `#` column is ignored.
-- Type **Row range** `101-104` (or `101`) to fill those data rows into `id1`… in order. Separate **Start row** / **End row** still work when the range box is empty.
-- Template with `id1`–`id5`: `101-106` is rejected (6 cards, only 5 groups).
-- Data row 200 when the file only has 50 rows, or a blank/junk row in range: skipped and listed; other cards still fill.
+- Comma-separated items: a single number or a range `a-b`. Examples: `102-104` → 102,103,104; `102,103,107`; `102-104,107`. Spaces are allowed. Reversed `104-102` expands ascending to 102,103,104.
+- Typed order is kept (so `107,102-104` fills `id1` with 107, then `id2`–`id4` with 102–104). Duplicates are dropped.
+- Template with `id1`–`id5`: six or more listed rows is rejected with an alert (nothing is filled).
+- A row past the end of the CSV, or a blank/junk row: skipped and listed; other cards still fill.
 
 Headers are matched **by name** (case-insensitive; spaces and underscores ignored), not by column position. Missing columns and missing optional text layers are skipped quietly — they are not counted as errors.
 
@@ -137,7 +140,7 @@ See `Photoshop_Layer_Codes_NFT.csv` for the full NFT layer table.
 
 ## Data20 — `Data20.jsx`
 
-Same script as `back_fill_NFT.jsx` (UTF-8 / Windows-1252 auto-detect, skip-and-report, row range, one History step) with the text-field cap raised to **Data20: DataA-DataT**.
+Same script as `back_fill_NFT.jsx` (UTF-8 / Windows-1252 auto-detect, skip-and-report, **Rows** list, one History step) with the text-field cap raised to **Data20: DataA-DataT**.
 
 | Extra layers (in `id1`) | CSV column |
 |-------------------------|------------|
@@ -145,4 +148,4 @@ Same script as `back_fill_NFT.jsx` (UTF-8 / Windows-1252 auto-detect, skip-and-r
 
 Use this when the PSD has `dataK`…`dataT` layers: **File → Scripts → Browse…** → `Data20.jsx`. Keep using `back_fill_NFT.jsx` for the 10-data template (DataA–DataJ only). Dummy sample: `sample_NFT_data20.csv`.
 
-CSV encoding, Data20 field list, and row-range parsing checks (dummy data, no Photoshop): `node test/run_tests.js`
+CSV encoding, Data20 field list, and Rows list/range parsing checks (dummy data, no Photoshop): `node test/run_tests.js`

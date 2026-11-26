@@ -6,7 +6,7 @@
   DataA→dataA1… DataT (text). Member CSV: nickname/firstName/lastName/verifyUrl.
   Card Number kept as 8155 5265 3090 3026 (4-4-4-4).
   Headers match case-insensitively, ignoring spaces and underscores.
-  Row numbers: 1 = first data row after the header (Excel/Sheets row 2); # column ignored.
+  Rows field: 102-104 or 102,103,107. 1 = first data row after the header (Excel/Sheets row 2); # column ignored.
   CSV encoding: try UTF-8, then SYSTEM/Windows-1252 if invalid UTF-8.
 */
 
@@ -311,29 +311,21 @@ app.bringToFront();
       if (f) fileEt.text = f.fsName;
     };
 
-    var rangeGroup = dlg.add("group");
-    rangeGroup.add("statictext", undefined, "Row range:");
-    var rangeEt = rangeGroup.add("edittext", undefined, "");
-    rangeEt.preferredSize.width = 90;
-    rangeGroup.add("statictext", undefined, "(e.g. 101-104 or 101)");
-
-    var startEndGroup = dlg.add("group");
-    startEndGroup.add("statictext", undefined, "Start row:");
-    var startEt = startEndGroup.add("edittext", undefined, "1");
-    startEt.preferredSize.width = 50;
-    startEndGroup.add("statictext", undefined, "End row:");
-    var endEt = startEndGroup.add("edittext", undefined, "5");
-    endEt.preferredSize.width = 50;
+    var rowsGroup = dlg.add("group");
+    rowsGroup.add("statictext", undefined, "Rows:");
+    var rowsEt = rowsGroup.add("edittext", undefined, "1-5");
+    rowsEt.preferredSize.width = 200;
+    rowsGroup.add("statictext", undefined, "e.g. 102-104 or 102,103,107");
 
     dlg.add(
       "statictext",
       undefined,
       "Row numbers: 1 = first data row after the header (Excel/Sheets row 2).\n" +
-        "The # column is ignored. Row range (101-104 or 101) overrides Start/End if filled.\n" +
-        "Each row fills the next id group (id1, id2, …) in order. This PSD has " +
+        "The # column is ignored. Type a list or range in Rows (spaces OK).\n" +
+        "Each listed row fills the next id group (id1, id2, …) in the order you typed.\n" +
+        "This PSD has " +
         slotCount +
-        " id group(s).\n" +
-        "A range longer than that is rejected. Rows past the CSV or blank rows are skipped.\n" +
+        " id group(s). Too many rows is rejected. Past-end or blank rows are skipped.\n" +
         "Data20: DataA-DataT. Col2 = Card Number. PictureA → smartA1… DataA–DataT fill text layers if present.\n" +
         "CSV: UTF-8, or older Windows-1252 auto-detected. Missing images are skipped and listed.",
       { multiline: true }
@@ -346,48 +338,29 @@ app.bringToFront();
 
     if (dlg.show() !== 1) return null;
 
-    var startRow;
-    var endRow;
-    var rangeText = trim(rangeEt.text);
-    if (rangeText) {
-      var parsed = parseRowRange(rangeText);
-      if (parsed.error) {
-        alert("Row range must be like 101-104 or 101 (digits and an optional hyphen).");
-        return null;
-      }
-      startRow = parsed.start;
-      endRow = parsed.end;
-    } else {
-      startRow = parseInt(startEt.text, 10);
-      endRow = parseInt(endEt.text, 10);
-      if (isNaN(startRow) || isNaN(endRow) || startRow < 1 || endRow < 1) {
-        alert("Start/End row must be integers (min 1).");
-        return null;
-      }
-      if (endRow < startRow) {
-        var swapped = startRow;
-        startRow = endRow;
-        endRow = swapped;
-      }
+    var parsed = parseRowList(rowsEt.text);
+    if (parsed.error) {
+      alert(
+        "Rows must be like 102-104 or 102,103,107 (digits, commas, and hyphens only; min 1)."
+      );
+      return null;
     }
     if (!fileEt.text) {
       alert("Select a CSV file (or Excel).");
       return null;
     }
-    var nCards = endRow - startRow + 1;
+    var nCards = parsed.rows.length;
     if (nCards > slotCount) {
       alert(
-        "Row range " +
-          startRow +
-          "-" +
-          endRow +
-          " is " +
+        "Rows lists " +
           nCards +
-          " cards, but this PSD has " +
+          " cards (" +
+          parsed.rows.join(", ") +
+          "), but this PSD has " +
           slotCount +
           " id group(s) (id1…id" +
           slotCount +
-          ").\nUse a shorter range (max " +
+          ").\nUse fewer rows (max " +
           slotCount +
           ")."
       );
@@ -396,8 +369,7 @@ app.bringToFront();
 
     return {
       dataPath: fileEt.text,
-      startRow: startRow,
-      endRow: endRow,
+      rows: parsed.rows,
       slotCount: slotCount
     };
   }
@@ -428,25 +400,49 @@ app.bringToFront();
     return String(s == null ? "" : s).replace(/^\s+|\s+$/g, "");
   }
 
-  // 1-based data rows after the header. "101-104", "101", or reversed "104-101".
-  function parseRowRange(text) {
+  // 1-based data rows after the header. Comma list of singles and a-b ranges.
+  // "102-104" → 102,103,104; "102,103,107"; "102-104,107"; reversed "104-102"
+  // expands ascending. Typed order is kept; duplicates are dropped.
+  function parseRowList(text) {
     var s = trim(String(text == null ? "" : text));
     if (!s) return { error: "empty" };
-    var single = s.match(/^(\d+)$/);
-    if (single) {
-      var n = parseInt(single[1], 10);
-      if (isNaN(n) || n < 1) return { error: "invalid" };
-      return { start: n, end: n };
+    var parts = s.split(",");
+    var rows = [];
+    var seen = {};
+    var i;
+
+    function addRow(n) {
+      if (seen[n]) return true;
+      seen[n] = true;
+      rows.push(n);
+      return true;
     }
-    var pair = s.match(/^(\d+)\s*-\s*(\d+)$/);
-    if (pair) {
-      var a = parseInt(pair[1], 10);
-      var b = parseInt(pair[2], 10);
-      if (isNaN(a) || isNaN(b) || a < 1 || b < 1) return { error: "invalid" };
-      if (a <= b) return { start: a, end: b };
-      return { start: b, end: a };
+
+    for (i = 0; i < parts.length; i++) {
+      var item = trim(parts[i]);
+      if (!item) return { error: "invalid" };
+      var single = item.match(/^(\d+)$/);
+      if (single) {
+        var n = parseInt(single[1], 10);
+        if (isNaN(n) || n < 1) return { error: "invalid" };
+        addRow(n);
+        continue;
+      }
+      var pair = item.match(/^(\d+)\s*-\s*(\d+)$/);
+      if (pair) {
+        var a = parseInt(pair[1], 10);
+        var b = parseInt(pair[2], 10);
+        if (isNaN(a) || isNaN(b) || a < 1 || b < 1) return { error: "invalid" };
+        var lo = a <= b ? a : b;
+        var hi = a <= b ? b : a;
+        var r;
+        for (r = lo; r <= hi; r++) addRow(r);
+        continue;
+      }
+      return { error: "invalid" };
     }
-    return { error: "invalid" };
+    if (!rows.length) return { error: "empty" };
+    return { rows: rows };
   }
 
   function countIdGroups(doc) {
@@ -2111,8 +2107,11 @@ app.bringToFront();
       );
     }
 
+    var selectedRows = settings.rows;
     var preview = [];
-    for (var p = settings.startRow; p <= settings.endRow; p++) {
+    var pi;
+    for (pi = 0; pi < selectedRows.length; pi++) {
+      var p = selectedRows[pi];
       if (p > dataRowCount || !rows[p]) {
         preview.push("  " + p + " = (past end of CSV — skipped)");
       } else if (!isValidCardRow(rows[p], headerInfo, dataOnly)) {
@@ -2141,7 +2140,9 @@ app.bringToFront();
         continue;
       }
       var pr;
-      for (pr = settings.startRow; pr <= settings.endRow; pr++) {
+      var pri;
+      for (pri = 0; pri < selectedRows.length; pri++) {
+        pr = selectedRows[pri];
         if (pr > dataRowCount || !rows[pr]) {
           pathPreview.push("  r" + pr + " " + colLabel + " = (past end of CSV — skipped)");
           continue;
@@ -2183,12 +2184,10 @@ app.bringToFront();
         loaded.source +
         ") · encoding: " +
         (loaded.encoding || "n/a") +
-        " · filling " +
-        settings.startRow +
-        "–" +
-        settings.endRow +
+        " · filling rows " +
+        selectedRows.join(", ") +
         " into id1–id" +
-        (settings.endRow - settings.startRow + 1)
+        selectedRows.length
     );
     batchLog.lines.push("Row check:\n" + preview.join("\n"));
     batchLog.lines.push("Image path check:\n" + pathPreview.join("\n"));
@@ -2207,10 +2206,11 @@ app.bringToFront();
     function runFillSlots() {
       if (fillDone) return;
       fillDone = true;
-      var r;
-      for (r = settings.startRow; r <= settings.endRow; r++) {
+      var si;
+      for (si = 0; si < selectedRows.length; si++) {
+        var r = selectedRows[si];
         var cells = rows[r];
-        var slot = r - settings.startRow + 1;
+        var slot = si + 1;
         if (!cells || r > dataRowCount) {
           batchLog.skipped.push(formatSkip(r, "(row)", "", "past end of CSV"));
           continue;
