@@ -1,11 +1,13 @@
 /*
-  Photoshop CS6 — NFT back fill (client)
+  Photoshop CS6 — NFT back fill (client) — Data10: DataA-DataJ
   Groups id1…id5. Sheet: NFT CARDS
   Col1 # = row number (ignored). Col2 = Card Number.
   PictureA→smartA1…  PictureB→smartB1…
-  DataA→dataA1… (text). Member CSV: nickname/firstName/lastName/verifyUrl.
+  DataA→dataA1… DataJ (text). Member CSV: nickname/firstName/lastName/verifyUrl.
   Card Number kept as 8155 5265 3090 3026 (4-4-4-4).
   Headers match case-insensitively, ignoring spaces and underscores.
+  Rows field: 102-104 or 102,103,107. 1 = first data row after the header (Excel/Sheets row 2); # column ignored.
+  CSV encoding: try UTF-8, then SYSTEM/Windows-1252 if invalid UTF-8.
 */
 
 #target photoshop
@@ -210,6 +212,7 @@ app.bringToFront();
   var MAX_SLOTS = 5;
 
   function showDialog() {
+    var slotCount = countIdGroups(app.activeDocument);
     var dlg = new Window("dialog", "NFT Back Fill (CS6)");
     dlg.orientation = "column";
     dlg.alignChildren = ["fill", "top"];
@@ -228,21 +231,23 @@ app.bringToFront();
       if (f) fileEt.text = f.fsName;
     };
 
-    var rangeGroup = dlg.add("group");
-    rangeGroup.add("statictext", undefined, "Start row:");
-    var startEt = rangeGroup.add("edittext", undefined, "1");
-    startEt.preferredSize.width = 50;
-    rangeGroup.add("statictext", undefined, "End row:");
-    var endEt = rangeGroup.add("edittext", undefined, "5");
-    endEt.preferredSize.width = 50;
+    var rowsGroup = dlg.add("group");
+    rowsGroup.add("statictext", undefined, "Rows:");
+    var rowsEt = rowsGroup.add("edittext", undefined, "1-5");
+    rowsEt.preferredSize.width = 200;
+    rowsGroup.add("statictext", undefined, "e.g. 102-104 or 102,103,107");
 
     dlg.add(
       "statictext",
       undefined,
-      "Col1 # = sheet row (ignored). Col2 = Card Number.\n" +
-        "PictureA → smartA1… PictureB → smartB1… (empty cells skipped)\n" +
-        "DataA / firstName / lastName / … fill text layers if present.\n" +
-        "Images: exact path from CSV. Card#: 8155 5265 3090 3026",
+      "Row numbers: 1 = first data row after the header (Excel/Sheets row 2).\n" +
+        "The # column is ignored. Type a list or range in Rows (spaces OK).\n" +
+        "Each listed row fills the next id group (id1, id2, …) in the order you typed.\n" +
+        "This PSD has " +
+        slotCount +
+        " id group(s). Too many rows is rejected. Past-end or blank rows are skipped.\n" +
+        "Col2 = Card Number. PictureA → smartA1… DataA–DataJ fill text layers if present.\n" +
+        "CSV: UTF-8, or older Windows-1252 auto-detected. Missing images are skipped and listed.",
       { multiline: true }
     ).preferredSize.width = 420;
 
@@ -253,25 +258,39 @@ app.bringToFront();
 
     if (dlg.show() !== 1) return null;
 
-    var startRow = parseInt(startEt.text, 10);
-    var endRow = parseInt(endEt.text, 10);
-    if (isNaN(startRow) || isNaN(endRow) || startRow < 1 || endRow < startRow) {
-      alert("Start/End row must be integers with End >= Start (min Start = 1).");
+    var parsed = parseRowList(rowsEt.text);
+    if (parsed.error) {
+      alert(
+        "Rows must be like 102-104 or 102,103,107 (digits, commas, and hyphens only; min 1)."
+      );
       return null;
     }
     if (!fileEt.text) {
       alert("Select a CSV file (or Excel).");
       return null;
     }
-    if (endRow - startRow + 1 > MAX_SLOTS) {
-      alert("Max " + MAX_SLOTS + " cards per sheet. Use a smaller row range.");
+    var nCards = parsed.rows.length;
+    if (nCards > slotCount) {
+      alert(
+        "Rows lists " +
+          nCards +
+          " cards (" +
+          parsed.rows.join(", ") +
+          "), but this PSD has " +
+          slotCount +
+          " id group(s) (id1…id" +
+          slotCount +
+          ").\nUse fewer rows (max " +
+          slotCount +
+          ")."
+      );
       return null;
     }
 
     return {
       dataPath: fileEt.text,
-      startRow: startRow,
-      endRow: endRow
+      rows: parsed.rows,
+      slotCount: slotCount
     };
   }
 
@@ -301,36 +320,197 @@ app.bringToFront();
     return String(s == null ? "" : s).replace(/^\s+|\s+$/g, "");
   }
 
+  // 1-based data rows after the header. Comma list of singles and a-b ranges.
+  // "102-104" → 102,103,104; "102,103,107"; "102-104,107"; reversed "104-102"
+  // expands ascending. Typed order is kept; duplicates are dropped.
+  function parseRowList(text) {
+    var s = trim(String(text == null ? "" : text));
+    if (!s) return { error: "empty" };
+    var parts = s.split(",");
+    var rows = [];
+    var seen = {};
+    var i;
+
+    function addRow(n) {
+      if (seen[n]) return true;
+      seen[n] = true;
+      rows.push(n);
+      return true;
+    }
+
+    for (i = 0; i < parts.length; i++) {
+      var item = trim(parts[i]);
+      if (!item) return { error: "invalid" };
+      var single = item.match(/^(\d+)$/);
+      if (single) {
+        var n = parseInt(single[1], 10);
+        if (isNaN(n) || n < 1) return { error: "invalid" };
+        addRow(n);
+        continue;
+      }
+      var pair = item.match(/^(\d+)\s*-\s*(\d+)$/);
+      if (pair) {
+        var a = parseInt(pair[1], 10);
+        var b = parseInt(pair[2], 10);
+        if (isNaN(a) || isNaN(b) || a < 1 || b < 1) return { error: "invalid" };
+        var lo = a <= b ? a : b;
+        var hi = a <= b ? b : a;
+        var r;
+        for (r = lo; r <= hi; r++) addRow(r);
+        continue;
+      }
+      return { error: "invalid" };
+    }
+    if (!rows.length) return { error: "empty" };
+    return { rows: rows };
+  }
+
+  function countIdGroups(doc) {
+    var found = 0;
+    var seen = {};
+    if (!doc) return MAX_SLOTS;
+    try {
+      walkLayers(doc, function (layer) {
+        if (!layer || layer.typename !== "LayerSet") return;
+        var m = String(layer.name || "").match(/^id\s*(\d+)$/i);
+        if (!m) return;
+        var n = parseInt(m[1], 10);
+        if (isNaN(n) || n < 1 || seen[n]) return;
+        seen[n] = true;
+        found++;
+      });
+    } catch (eCount) {
+      return MAX_SLOTS;
+    }
+    return found > 0 ? found : MAX_SLOTS;
+  }
+
+  function stripLeadingBom(text) {
+    var s = String(text == null ? "" : text);
+    if (s.length && s.charCodeAt(0) === 0xfeff) s = s.substring(1);
+    // UTF-8 BOM bytes if the file was read as Latin-1 / SYSTEM
+    if (
+      s.length >= 3 &&
+      s.charCodeAt(0) === 0xef &&
+      s.charCodeAt(1) === 0xbb &&
+      s.charCodeAt(2) === 0xbf
+    ) {
+      s = s.substring(3);
+    }
+    if (s.substring(0, 3) === "\u00ef\u00bb\u00bf") s = s.substring(3);
+    return s;
+  }
+
+  function stripBomFromRows(rows) {
+    if (rows && rows.length && rows[0] && rows[0].length) {
+      rows[0][0] = stripLeadingBom(rows[0][0]);
+    }
+    return rows;
+  }
+
+  function formatSkip(csvRowNum, column, value, reason) {
+    var shown = value == null ? "" : String(value);
+    if (shown.length > 120) shown = shown.substring(0, 120) + "...";
+    return (
+      "row " +
+      csvRowNum +
+      ", column " +
+      (column == null ? "" : String(column)) +
+      ", value '" +
+      shown +
+      "' -- " +
+      (reason == null ? "" : String(reason))
+    );
+  }
+
   function fileExt(path) {
     var s = String(path || "").toLowerCase();
     var i = s.lastIndexOf(".");
     return i >= 0 ? s.substring(i) : "";
   }
 
-  function readFile(path) {
+  function looksLikeInvalidUtf8(text) {
+    var s = String(text == null ? "" : text);
+    if (!s) return false;
+    if (s.indexOf("\uFFFD") >= 0) return true;
+    // Typical mojibake from invalid or mis-decoded UTF-8 (CP1252 leftover).
+    var hints = [
+      "Ã±",
+      "Ã‘",
+      "Ã¡",
+      "Ã©",
+      "Ã­",
+      "Ã³",
+      "Ãº",
+      "Ã¼",
+      "Ã¤",
+      "Ã¶",
+      "Â¿",
+      "Â¡",
+      "â€œ",
+      "â€˜",
+      "â€“",
+      "â€”",
+      "Ãƒ"
+    ];
+    var i;
+    for (i = 0; i < hints.length; i++) {
+      if (s.indexOf(hints[i]) >= 0) return true;
+    }
+    return false;
+  }
+
+  function tryReadFileEncoding(path, encoding) {
+    var f = new File(path);
+    var text = "";
+    try {
+      f.encoding = encoding;
+      f.open("r");
+      text = f.read();
+      f.close();
+    } catch (eRead) {
+      try {
+        f.close();
+      } catch (eClose) {}
+      text = "";
+    }
+    return text;
+  }
+
+  function readFileWithDetectedEncoding(path) {
     var f = new File(path);
     if (!f.exists) throw new Error("File not found:\n" + path);
 
-    // Bunawan CSV is Windows-1252 (ñ in names). UTF-8 mis-reads break later rows.
-    var encodings = ["SYSTEM", "UTF-8"];
+    // Ken has UTF-8 CSVs (Sheets/Excel) and older Windows-1252 lists, both with ñ.
+    var utfNames = ["UTF-8", "UTF8"];
+    var sysNames = ["SYSTEM", "Windows-1252", "CP1252"];
     var text = "";
-    var e;
-    for (var i = 0; i < encodings.length; i++) {
-      try {
-        f.encoding = encodings[i];
-        f.open("r");
-        text = f.read();
-        f.close();
-        if (text && text.length) break;
-      } catch (eRead) {
-        try {
-          f.close();
-        } catch (eClose) {}
+    var encodingUsed = "";
+    var i;
+    for (i = 0; i < utfNames.length; i++) {
+      text = tryReadFileEncoding(path, utfNames[i]);
+      if (text && text.length) {
+        encodingUsed = "UTF-8";
+        break;
+      }
+    }
+    if (text && looksLikeInvalidUtf8(text)) {
+      var fallback = "";
+      for (i = 0; i < sysNames.length; i++) {
+        fallback = tryReadFileEncoding(path, sysNames[i]);
+        if (fallback && fallback.length) {
+          text = fallback;
+          encodingUsed = "SYSTEM (Windows-1252)";
+          break;
+        }
       }
     }
     if (!text) throw new Error("Could not read file:\n" + path);
-    if (text.length && text.charCodeAt(0) === 0xfeff) text = text.substring(1);
-    return text;
+    return { text: stripLeadingBom(text), encoding: encodingUsed || "UTF-8" };
+  }
+
+  function readFile(path) {
+    return readFileWithDetectedEncoding(path).text;
   }
 
   // Integer → digit string without scientific notation (ExtendScript-safe)
@@ -515,7 +695,7 @@ app.bringToFront();
   }
 
   function parseTSV(text) {
-    text = String(text).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    text = stripLeadingBom(String(text).replace(/\r\n/g, "\n").replace(/\r/g, "\n"));
     var lines = text.split("\n");
     var rows = [];
     for (var i = 0; i < lines.length; i++) {
@@ -575,20 +755,32 @@ app.bringToFront();
   function loadTable(path) {
     var ext = fileExt(path);
     if (ext === ".xlsx" || ext === ".xls" || ext === ".xlsm") {
-      return { rows: parseExcel(path), source: "Excel" };
+      return { rows: stripBomFromRows(parseExcel(path)), source: "Excel", encoding: "Excel" };
     }
     if (ext === ".tsv") {
-      return { rows: parseTSV(readFile(path)), source: "TSV" };
+      var tsvDetected = readFileWithDetectedEncoding(path);
+      return {
+        rows: stripBomFromRows(parseTSV(tsvDetected.text)),
+        source: "TSV",
+        encoding: tsvDetected.encoding
+      };
     }
-    var raw = parseCSV(readFile(path));
-    var repaired = coalesceBrokenCsvRows(raw);
-    return { rows: repaired, source: "CSV", rawRowCount: raw.length, repairedRowCount: repaired.length };
+    var detected = readFileWithDetectedEncoding(path);
+    var raw = parseCSV(detected.text);
+    var repaired = stripBomFromRows(coalesceBrokenCsvRows(raw));
+    return {
+      rows: repaired,
+      source: "CSV",
+      encoding: detected.encoding,
+      rawRowCount: raw.length,
+      repairedRowCount: repaired.length
+    };
   }
 
   // Full-file CSV parse — keeps newlines that sit inside quoted cells
   // (Google Sheets often exports Merits/Affiliation with line breaks).
   function parseCSV(text) {
-    text = String(text).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    text = stripLeadingBom(String(text).replace(/\r\n/g, "\n").replace(/\r/g, "\n"));
     var rows = [];
     var row = [];
     var cur = "";
@@ -810,13 +1002,36 @@ app.bringToFront();
     return s.replace(/\\/g, "/");
   }
 
-  // Follow the CSV path exactly (plus slash / quote / missing-.png cleanup only)
+  function decodedPathVariants(path) {
+    var out = [];
+    function add(p) {
+      if (!p) return;
+      var s = String(p);
+      var i;
+      for (i = 0; i < out.length; i++) {
+        if (out[i] === s) return;
+      }
+      out.push(s);
+    }
+    add(path);
+    try {
+      add(decodeURI(path));
+    } catch (e1) {}
+    try {
+      add(decodeURIComponent(path));
+    } catch (e2) {}
+    try {
+      if (typeof File !== "undefined" && File.decode) add(File.decode(path));
+    } catch (e3) {}
+    add(String(path).replace(/%20/g, " "));
+    return out;
+  }
+
+  // Follow the CSV path exactly (plus slash / quote / missing-.png / URI-decode)
   function resolveImageFile(path) {
     var raw = trim(path);
     if (!raw) return { file: null, tried: [], reason: "empty path" };
 
-    var cleaned = normalizeLocalPath(raw);
-    var back = cleaned.replace(/\//g, "\\");
     var tried = [];
     var candidates = [];
 
@@ -828,13 +1043,19 @@ app.bringToFront();
       candidates.push(p);
     }
 
-    addCandidate(cleaned);
-    addCandidate(back);
+    var bases = decodedPathVariants(raw);
+    var bi;
+    for (bi = 0; bi < bases.length; bi++) {
+      var cleaned = normalizeLocalPath(bases[bi]);
+      var back = cleaned.replace(/\//g, "\\");
+      addCandidate(cleaned);
+      addCandidate(back);
 
-    // Same path if CSV dropped the extension
-    if (!/\.(png|jpe?g|gif|tif{1,2}|bmp|webp)$/i.test(back)) {
-      addCandidate(back + ".png");
-      addCandidate(cleaned + ".png");
+      // Same path if CSV dropped the extension
+      if (!/\.(png|jpe?g|gif|tif{1,2}|bmp|webp)$/i.test(back)) {
+        addCandidate(back + ".png");
+        addCandidate(cleaned + ".png");
+      }
     }
 
     var i;
@@ -847,10 +1068,11 @@ app.bringToFront();
       } catch (eOpen) {}
     }
 
+    var display = normalizeLocalPath(raw).replace(/\//g, "\\");
     return {
       file: null,
       tried: tried,
-      reason: "file not found at CSV path:\n" + back
+      reason: "file not found at CSV path:\n" + display
     };
   }
 
@@ -1485,6 +1707,13 @@ app.bringToFront();
     } catch (e1) {}
   }
 
+  function closeDocQuietly(opened) {
+    if (!opened) return;
+    try {
+      opened.close(SaveOptions.DONOTSAVECHANGES);
+    } catch (eCloseDoc) {}
+  }
+
   // Duplicate into THIS slot's group, directly before the placeholder.
   // File → Place in CS6 often lands one group above (id3 image → id4).
   function duplicateImageBefore(doc, placeholder, imgFile) {
@@ -1498,7 +1727,7 @@ app.bringToFront();
       }
       dup = src.activeLayer.duplicate(placeholder, ElementPlacement.PLACEBEFORE);
     } finally {
-      src.close(SaveOptions.DONOTSAVECHANGES);
+      closeDocQuietly(src);
       app.activeDocument = doc;
     }
     return dup;
@@ -1552,7 +1781,7 @@ app.bringToFront();
           src.selection.selectAll();
           src.selection.copy();
         } finally {
-          src.close(SaveOptions.DONOTSAVECHANGES);
+          closeDocQuietly(src);
         }
         app.activeDocument = doc;
         selectLayer(placeholder);
@@ -1617,57 +1846,47 @@ app.bringToFront();
 
     for (var f = 0; f < FIELDS.length; f++) {
       var field = FIELDS[f];
-      if (field.enabled === false) continue;
+      var value = "";
+      try {
+        if (field.enabled === false) continue;
 
-      var colIdx = resolveColumnIndex(headerInfo, field, dataRows);
-      if (colIdx === undefined) {
-        continue;
-      }
+        var colIdx = resolveColumnIndex(headerInfo, field, dataRows);
+        if (colIdx === undefined) {
+          continue;
+        }
 
-      var value =
-        field.type === "image"
-          ? recoverImagePath(cells, colIdx, field.prefix, picCol)
-          : cellValue(cells, colIdx, field.type);
+        value =
+          field.type === "image"
+            ? recoverImagePath(cells, colIdx, field.prefix, picCol)
+            : cellValue(cells, colIdx, field.type);
 
-      if (value == null || value === "") {
-        continue;
-      }
+        if (value == null || value === "") {
+          continue;
+        }
 
-      var hit = findLayerForSlot(doc, slot, field.prefix, field.layerAliases);
-      if (!hit.layer) {
-        if (field.optional === true) continue;
-        log.skipped.push(
-          "CSV row " + csvRowNum + " " + hit.label + " (layer not found)"
-        );
-        continue;
-      }
-
-      if (field.type === "image") {
-        if (!looksLikeImagePath(value)) {
+        var hit = findLayerForSlot(doc, slot, field.prefix, field.layerAliases);
+        if (!hit.layer) {
+          if (field.optional === true) continue;
           log.skipped.push(
-            "CSV row " +
-              csvRowNum +
-              " " +
-              hit.label +
-              " (not a file path: " +
-              String(value).substring(0, 60) +
-              ")"
+            formatSkip(csvRowNum, field.column, value, "layer not found (" + hit.label + ")")
           );
           continue;
         }
-        var resolvedEarly = resolveImageFile(value);
-        if (!resolvedEarly.file) {
-          log.skipped.push(
-            "CSV row " +
-              csvRowNum +
-              " " +
-              hit.label +
-              " (file not found):\n" +
-              String(value)
-          );
-          continue;
-        }
-        try {
+
+        if (field.type === "image") {
+          if (!looksLikeImagePath(value)) {
+            log.skipped.push(
+              formatSkip(csvRowNum, field.column, value, "not a file path")
+            );
+            continue;
+          }
+          var resolvedEarly = resolveImageFile(value);
+          if (!resolvedEarly.file) {
+            log.skipped.push(
+              formatSkip(csvRowNum, field.column, value, "file not found")
+            );
+            continue;
+          }
           // Restore as smartA1 / smartB1 (prefix + slot)
           fitImageIntoLayer(
             doc,
@@ -1684,15 +1903,9 @@ app.bringToFront();
               " OK ← " +
               String(value).replace(/^.*[\\\/]/, "")
           );
-        } catch (eImg) {
-          log.skipped.push(
-            "CSV row " + csvRowNum + " " + hit.label + " (" + eImg.message + ")"
-          );
+          continue;
         }
-        continue;
-      }
 
-      try {
         if (field.type === "text-fit-track") {
           var m = setPointTextWithTrackingFit(hit.layer, value, field.fitRules);
           log.applied.push(
@@ -1709,10 +1922,15 @@ app.bringToFront();
           setTextLayerContents(hit.layer, value);
           log.applied.push(hit.label);
         }
-      } catch (e) {
-        if (field.optional === true) continue;
+      } catch (eField) {
+        if (field.optional === true && field.type !== "image") continue;
         log.skipped.push(
-          "CSV row " + csvRowNum + " " + hit.label + " (not text?)"
+          formatSkip(
+            csvRowNum,
+            field.column,
+            value,
+            eField && eField.message ? eField.message : "field error"
+          )
         );
       }
     }
@@ -1742,11 +1960,13 @@ app.bringToFront();
     var dataOnly = rows.slice(1);
     var headerInfo = buildHeaderInfo(header);
     var filtered = filterStudentRows(header, dataOnly, headerInfo);
-    rows = [header].concat(filtered.rows);
-    dataOnly = filtered.rows;
+    // Range uses 1-based data rows after the header (Excel/Sheets row 2 = row 1).
+    // Blank/junk rows stay in place so they can be skipped and listed.
+    rows = [header].concat(dataOnly);
 
     var mapLines = [
       "Source: " + loaded.source,
+      "CSV encoding: " + (loaded.encoding || "n/a"),
       "Columns in file: " + header.length + " (wide sheets OK — match by header name)"
     ];
     if (loaded.rawRowCount && loaded.rawRowCount !== loaded.repairedRowCount) {
@@ -1802,109 +2022,156 @@ app.bringToFront();
     var dataRowCount = rows.length - 1;
     if (dataRowCount < 1) {
       throw new Error(
-        "No valid card rows found after CSV repair.\n" +
+        "No data rows found after CSV repair.\n" +
           "Re-export CSV from Sheets (Download → CSV)."
       );
     }
-    if (settings.endRow > dataRowCount) {
-      throw new Error(
-        "End row " +
-          settings.endRow +
-          " is past last card row (" +
-          dataRowCount +
-          ").\n" +
-          "Valid cards in this file: " +
-          dataRowCount +
-          "."
+
+    var selectedRows = settings.rows;
+    var preview = [];
+    var pi;
+    for (pi = 0; pi < selectedRows.length; pi++) {
+      var p = selectedRows[pi];
+      if (p > dataRowCount || !rows[p]) {
+        preview.push("  " + p + " = (past end of CSV — skipped)");
+      } else if (!isValidCardRow(rows[p], headerInfo, dataOnly)) {
+        preview.push("  " + p + " = (blank — skipped)");
+      } else {
+        preview.push("  " + p + " = " + rowDisplayName(rows[p], headerInfo, dataOnly));
+      }
+    }
+
+    // Image path pre-check (PictureA/PictureB/…) — warn only, never abort
+    var pathPreview = [];
+    var missingFiles = 0;
+    var fi2;
+    for (fi2 = 0; fi2 < FIELDS.length; fi2++) {
+      var imgField = FIELDS[fi2];
+      if (imgField.enabled === false || imgField.type !== "image") continue;
+      var pidx = resolveColumnIndex(headerInfo, imgField, dataOnly);
+      var colLabel = imgField.column || imgField.prefix;
+      if (pidx === undefined) {
+        if (imgField.prefix === "smartA") {
+          pathPreview.push(
+            "  PictureA / smart1path: HEADER NOT FOUND\n" +
+              "  Tip: rename column to PictureA, or keep smart1path (also accepted)."
+          );
+        }
+        continue;
+      }
+      var pr;
+      var pri;
+      for (pri = 0; pri < selectedRows.length; pri++) {
+        pr = selectedRows[pri];
+        if (pr > dataRowCount || !rows[pr]) {
+          pathPreview.push("  r" + pr + " " + colLabel + " = (past end of CSV — skipped)");
+          continue;
+        }
+        var cv = rows[pr][pidx] != null ? trim(rows[pr][pidx]) : "";
+        var exists = false;
+        if (cv && looksLikeImagePath(cv)) {
+          var rf = resolveImageFile(cv);
+          exists = !!(rf && rf.file);
+          if (!exists) missingFiles++;
+        }
+        pathPreview.push(
+          "  r" +
+            pr +
+            " " +
+            colLabel +
+            " @" +
+            excelColLetter(pidx) +
+            " (" +
+            (headerInfo.originals[pidx] || "") +
+            ") = " +
+            (cv
+              ? cv.replace(/^.*[\\\/]/, "").substring(0, 40) +
+                (exists ? " [OK]" : " [FILE MISSING]")
+              : "(empty — skipped)")
+        );
+      }
+    }
+    if (!pathPreview.length) {
+      pathPreview.push("  smartA / PictureA: not configured");
+    }
+
+    batchLog.lines.push(
+      "Data rows: " +
+        dataRowCount +
+        " · valid cards: " +
+        filtered.rows.length +
+        " (" +
+        loaded.source +
+        ") · encoding: " +
+        (loaded.encoding || "n/a") +
+        " · filling rows " +
+        selectedRows.join(", ") +
+        " into id1–id" +
+        selectedRows.length
+    );
+    batchLog.lines.push("Row check:\n" + preview.join("\n"));
+    batchLog.lines.push("Image path check:\n" + pathPreview.join("\n"));
+    batchLog.lines.push("");
+    if (missingFiles > 0) {
+      batchLog.warnings.push(
+        "Pre-check: " +
+          missingFiles +
+          " image file(s) not found at the path in the CSV. " +
+          "Those fields will be skipped; other cards and fields still fill.\n" +
+          pathPreview.join("\n")
       );
     }
 
-    var preview = [];
-    for (var p = settings.startRow; p <= settings.endRow; p++) {
-      preview.push("  " + p + " = " + rowDisplayName(rows[p], headerInfo, dataOnly));
-    }
-
-    // Show PictureA path cells for selected rows + file-exists check
-    var pathPreview = [];
-    var pf = null;
-    for (var fi2 = 0; fi2 < FIELDS.length; fi2++) {
-      if (FIELDS[fi2].prefix === "smartA" && FIELDS[fi2].enabled !== false) {
-        pf = FIELDS[fi2];
-        break;
-      }
-    }
-    var missingFiles = 0;
-    if (!pf) {
-      pathPreview.push("  smartA / PictureA: not configured");
-    } else {
-      var pidx = resolveColumnIndex(headerInfo, pf, dataOnly);
-      if (pidx === undefined) {
-        pathPreview.push(
-          "  PictureA / smart1path: HEADER NOT FOUND\n" +
-            "  Tip: rename column to PictureA, or keep smart1path (also accepted)."
-        );
-      } else {
-        for (var pr = settings.startRow; pr <= settings.endRow; pr++) {
-          var cv = rows[pr][pidx] != null ? trim(rows[pr][pidx]) : "";
-          var exists = false;
-          if (cv && looksLikeImagePath(cv)) {
-            var rf = resolveImageFile(cv);
-            exists = !!(rf && rf.file);
-            if (!exists) missingFiles++;
-          }
-          pathPreview.push(
-            "  r" +
-              pr +
-              " @" +
-              excelColLetter(pidx) +
-              " (" +
-              (headerInfo.originals[pidx] || "") +
-              ") = " +
-              (cv
-                ? cv.replace(/^.*[\\\/]/, "").substring(0, 40) +
-                  (exists ? " [OK]" : " [FILE MISSING]")
-                : "(empty — skipped)")
+    var fillDone = false;
+    function runFillSlots() {
+      if (fillDone) return;
+      fillDone = true;
+      var si;
+      for (si = 0; si < selectedRows.length; si++) {
+        var r = selectedRows[si];
+        var cells = rows[r];
+        var slot = si + 1;
+        if (!cells || r > dataRowCount) {
+          batchLog.skipped.push(formatSkip(r, "(row)", "", "past end of CSV"));
+          continue;
+        }
+        if (!isValidCardRow(cells, headerInfo, dataOnly)) {
+          batchLog.skipped.push(
+            formatSkip(
+              r,
+              "(row)",
+              rowDisplayName(cells, headerInfo, dataOnly),
+              "blank / not a card row"
+            )
+          );
+          continue;
+        }
+        try {
+          fillSlot(doc, slot, r, cells, headerInfo, dataOnly, batchLog);
+        } catch (eRow) {
+          batchLog.skipped.push(
+            formatSkip(
+              r,
+              "(row)",
+              rowDisplayName(cells, headerInfo, dataOnly),
+              eRow && eRow.message ? eRow.message : "row error"
+            )
           );
         }
       }
     }
 
-    if (missingFiles > 0) {
-      throw new Error(
-        missingFiles +
-          " PictureA file(s) not found at the path in the CSV.\n" +
-          "Script uses that path as written — check the file exists.\n\n" +
-          pathPreview.join("\n")
-      );
+    // One History step; skip CS6 screen refresh.
+    try {
+      $.global.__psNftRunFill = runFillSlots;
+      doc.suspendHistory("NFT Back Fill", "$.global.__psNftRunFill()");
+    } catch (eHist) {
+    } finally {
+      try {
+        $.global.__psNftRunFill = null;
+      } catch (eG) {}
     }
-
-    batchLog.lines.push(
-      "Valid cards: " +
-        dataRowCount +
-        " (" +
-        loaded.source +
-        ") · filling " +
-        settings.startRow +
-        "–" +
-        settings.endRow +
-        " into id1–id" +
-        (settings.endRow - settings.startRow + 1)
-    );
-    batchLog.lines.push("Row check:\n" + preview.join("\n"));
-    batchLog.lines.push("PictureA check:\n" + pathPreview.join("\n"));
-    batchLog.lines.push("");
-
-    for (var r = settings.startRow; r <= settings.endRow; r++) {
-      fillSlot(
-        doc,
-        r - settings.startRow + 1,
-        r,
-        rows[r],
-        headerInfo,
-        dataOnly,
-        batchLog
-      );
-    }
+    if (!fillDone) runFillSlots();
 
     app.displayDialogs = DialogModes.ALL;
     var summary = [];
@@ -1914,12 +2181,12 @@ app.bringToFront();
     if (batchLog.warnings && batchLog.warnings.length) {
       summary.push("");
       summary.push("--- WARNINGS ---");
-      summary = summary.concat(batchLog.warnings.slice(0, 30));
+      summary = summary.concat(batchLog.warnings);
     }
     if (batchLog.skipped.length) {
       summary.push("");
-      summary.push("--- SKIPPED (read this) ---");
-      summary = summary.concat(batchLog.skipped.slice(0, 30));
+      summary.push("--- SKIPPED / MISSING (row, column, value) ---");
+      summary = summary.concat(batchLog.skipped);
     }
     var imgApplied = [];
     for (var ai = 0; ai < batchLog.applied.length; ai++) {
